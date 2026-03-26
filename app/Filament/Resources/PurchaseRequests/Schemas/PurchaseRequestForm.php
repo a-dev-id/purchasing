@@ -36,6 +36,16 @@ class PurchaseRequestForm
         return static::getCurrentUser()?->isPurchasing() ?? false;
     }
 
+    protected static function isAccountingUser(): bool
+    {
+        return static::getCurrentUser()?->isAccounting() ?? false;
+    }
+
+    protected static function isAdminUser(): bool
+    {
+        return static::getCurrentUser()?->isAdmin() ?? false;
+    }
+
     protected static function getCurrentDepartmentName(): ?string
     {
         return static::getCurrentUser()?->department_name;
@@ -47,18 +57,106 @@ class PurchaseRequestForm
             return null;
         }
 
-        $log = $record->logs()
-            ->where('action', 'rejected_for_revision')
-            ->whereIn('to_status', [
-                'revision_from_purchasing',
-                'revision_from_accounting',
-                'revision_from_gm',
-            ])
+        $statusActionMap = [
+            'revision_from_purchasing' => 'revision_from_purchasing',
+            'revision_from_accounting' => 'revision_from_accounting',
+            'revision_from_gm' => 'revision_from_gm',
+            'revision_to_purchasing_from_accounting' => 'revision_to_purchasing_from_accounting',
+            'revision_to_requester_from_accounting' => 'revision_to_requester_from_accounting',
+            'revision_to_purchasing_from_gm' => 'revision_to_purchasing_from_gm',
+            'revision_to_accounting_from_gm' => 'revision_to_accounting_from_gm',
+            'revision_to_requester_from_gm' => 'revision_to_requester_from_gm',
+        ];
+
+        $currentAction = $statusActionMap[$record->status] ?? null;
+
+        if ($currentAction) {
+            $currentLog = $record->logs()
+                ->where('action', $currentAction)
+                ->whereNotNull('message')
+                ->where('message', '!=', '')
+                ->latest('acted_at')
+                ->latest('id')
+                ->first();
+
+            if ($currentLog) {
+                return $currentLog->message;
+            }
+        }
+
+        $fallbackLog = $record->logs()
+            ->whereIn('action', array_values($statusActionMap))
+            ->whereNotNull('message')
+            ->where('message', '!=', '')
             ->latest('acted_at')
             ->latest('id')
             ->first();
 
-        return $log?->message;
+        return $fallbackLog?->message;
+    }
+
+    protected static function canShowVendorOffers(?PurchaseRequest $record): bool
+    {
+        $user = static::getCurrentUser();
+
+        if (! $user || ! $record) {
+            return false;
+        }
+
+        if ($user->isAdmin()) {
+            return true;
+        }
+
+        if ($user->isPurchasing()) {
+            return in_array($record->status, [
+                'submitted',
+                'revision_from_purchasing',
+                'submitted_to_accounting',
+                'revision_from_accounting',
+                'revision_to_purchasing_from_accounting',
+                'on_hold_by_accounting',
+                'submitted_to_gm',
+                'on_hold_by_gm',
+                'revision_from_gm',
+                'revision_to_purchasing_from_gm',
+                'revision_to_accounting_from_gm',
+                'revision_to_requester_from_gm',
+                'approved',
+                'rejected',
+            ], true);
+        }
+
+        if ($user->isAccounting()) {
+            return in_array($record->status, [
+                'submitted_to_accounting',
+                'on_hold_by_accounting',
+                'revision_from_accounting',
+                'revision_to_purchasing_from_accounting',
+                'revision_to_requester_from_accounting',
+                'submitted_to_gm',
+                'on_hold_by_gm',
+                'revision_from_gm',
+                'revision_to_purchasing_from_gm',
+                'revision_to_accounting_from_gm',
+                'revision_to_requester_from_gm',
+                'approved',
+                'rejected',
+            ], true);
+        }
+
+        if ($user->isGm()) {
+            return in_array($record->status, [
+                'submitted_to_gm',
+                'on_hold_by_gm',
+                'revision_to_purchasing_from_gm',
+                'revision_to_accounting_from_gm',
+                'revision_to_requester_from_gm',
+                'approved',
+                'rejected',
+            ], true);
+        }
+
+        return false;
     }
 
     public static function configure(Schema $schema): Schema
@@ -351,12 +449,7 @@ class PurchaseRequestForm
                             ->columns(2)
                             ->columnSpanFull(),
                     ])
-                    ->visible(
-                        fn(?PurchaseRequest $record): bool =>
-                        filled($record)
-                            && static::isPurchasingUser()
-                            && $record->status === 'submitted_to_purchasing'
-                    )
+                    ->visible(fn(?PurchaseRequest $record): bool => static::canShowVendorOffers($record))
                     ->columnSpanFull(),
             ]);
     }

@@ -5,10 +5,10 @@ namespace App\Filament\Resources\PurchaseRequests\Pages;
 use App\Filament\Resources\PurchaseRequests\PurchaseRequestResource;
 use App\Models\Item;
 use App\Models\PurchaseRequest;
-use App\Models\PurchaseRequestLog;
 use App\Models\User;
 use App\Models\Vendor;
 use Filament\Actions\Action;
+use Filament\Actions\ActionGroup;
 use Filament\Forms\Components\Textarea;
 use Filament\Notifications\Notification;
 use Filament\Resources\Pages\EditRecord;
@@ -22,114 +22,414 @@ class EditPurchaseRequest extends EditRecord
     {
         return [
             Action::make('submitRequest')
-                ->label('Submit Request')
-                ->icon('heroicon-o-paper-airplane')
+                ->label('Submit')
                 ->color('success')
+                ->icon('heroicon-m-check-circle')
                 ->requiresConfirmation()
-                ->visible(fn(): bool => $this->canRequesterSubmit())
-                ->action(function (): void {
-                    /** @var PurchaseRequest $record */
-                    $record = $this->record;
+                ->visible(fn() => $this->canRequesterSubmit())
+                ->action(function () {
+                    if (blank($this->record->request_number)) {
+                        $this->record->request_number = $this->generateRequestNumber($this->record);
+                    }
 
-                    if ($record->items()->count() === 0) {
+                    if (blank($this->record->submitted_at)) {
+                        $this->record->submitted_at = now();
+                    }
+
+                    $this->record->status = 'submitted';
+                    $this->record->current_status_at = now();
+                    $this->record->save();
+
+                    $this->record->logs()->create([
+                        'user_id' => Auth::id(),
+                        'action' => 'submitted',
+                        'message' => 'Purchase request submitted to Purchasing.',
+                    ]);
+
+                    Notification::make()
+                        ->success()
+                        ->title('Purchase request submitted.')
+                        ->send();
+
+                    $this->refreshFormData([
+                        'request_number',
+                        'submitted_at',
+                        'status',
+                        'current_status_at',
+                    ]);
+                }),
+
+            Action::make('submitToAccounting')
+                ->label('Submit to Accounting')
+                ->color('success')
+                ->icon('heroicon-m-check-circle')
+                ->requiresConfirmation()
+                ->visible(fn() => $this->canPurchasingSubmitToAccounting())
+                ->action(function () {
+                    $this->record->update([
+                        'status' => 'submitted_to_accounting',
+                        'current_status_at' => now(),
+                    ]);
+
+                    $this->record->logs()->create([
+                        'user_id' => Auth::id(),
+                        'action' => 'submitted_to_accounting',
+                        'message' => 'Purchase request submitted to Accounting.',
+                    ]);
+
+                    Notification::make()
+                        ->success()
+                        ->title('Purchase request submitted to Accounting.')
+                        ->send();
+
+                    $this->refreshFormData([
+                        'status',
+                        'current_status_at',
+                    ]);
+                }),
+
+            ActionGroup::make([
+                Action::make('returnToRequesterFromPurchasing')
+                    ->label('Return to Requester')
+                    ->icon('heroicon-m-arrow-uturn-left')
+                    ->color('danger')
+                    ->form([
+                        Textarea::make('message')
+                            ->label('Return Message')
+                            ->required()
+                            ->rows(4),
+                    ])
+                    ->action(function (array $data) {
+                        $this->record->update([
+                            'status' => 'revision_from_purchasing',
+                            'current_status_at' => now(),
+                        ]);
+
+                        $this->record->logs()->create([
+                            'user_id' => Auth::id(),
+                            'action' => 'revision_from_purchasing',
+                            'message' => $data['message'],
+                        ]);
+
                         Notification::make()
-                            ->title('Add at least one item before submitting.')
-                            ->danger()
+                            ->success()
+                            ->title('Purchase request returned to Requester.')
                             ->send();
 
-                        return;
-                    }
+                        $this->refreshFormData([
+                            'status',
+                            'current_status_at',
+                        ]);
+                    }),
+            ])
+                ->label('Purchasing Actions')
+                ->button()
+                ->color('gray')
+                ->icon('heroicon-m-ellipsis-horizontal')
+                ->visible(fn() => $this->canPurchasingReject()),
 
-                    $fromStatus = $record->status;
-
-                    if (blank($record->request_number)) {
-                        $record->request_number = $this->generateRequestNumber($record);
-                    }
-
-                    $record->status = 'submitted_to_purchasing';
-                    $record->current_status_at = now();
-
-                    if (blank($record->submitted_at)) {
-                        $record->submitted_at = now();
-                    }
-
-                    $record->save();
-
-                    $user = $this->getCurrentUser();
-
-                    PurchaseRequestLog::create([
-                        'purchase_request_id' => $record->id,
-                        'user_id' => $user?->id,
-                        'user_name' => $user?->name,
-                        'role_name' => $user?->role,
-                        'action' => 'submitted',
-                        'from_status' => $fromStatus,
-                        'to_status' => 'submitted_to_purchasing',
-                        'message' => 'Submitted by requester to Purchasing: ' . $record->requester_name,
-                        'meta' => [
-                            'request_number' => $record->request_number,
-                            'requester_name' => $record->requester_name,
-                            'department_name' => $record->department_name,
-                        ],
-                        'acted_at' => now(),
-                    ]);
-
-                    Notification::make()
-                        ->title('Purchase request submitted to Purchasing.')
-                        ->success()
-                        ->send();
-
-                    $this->redirect($this->getResource()::getUrl('index'));
-                }),
-
-            Action::make('rejectForRevision')
-                ->label('Reject for Revision')
-                ->icon('heroicon-o-arrow-uturn-left')
-                ->color('danger')
+            Action::make('submitToGm')
+                ->label('Submit to GM')
+                ->color('success')
+                ->icon('heroicon-m-check-circle')
                 ->requiresConfirmation()
-                ->visible(fn(): bool => $this->canPurchasingReject())
-                ->form([
-                    Textarea::make('message')
-                        ->label('Revision Message')
-                        ->placeholder('Explain what needs to be corrected by the requester')
-                        ->required()
-                        ->rows(5),
-                ])
-                ->action(function (array $data): void {
-                    /** @var PurchaseRequest $record */
-                    $record = $this->record;
+                ->visible(fn() => $this->canAccountingSubmitToGm())
+                ->action(function () {
+                    $this->record->update([
+                        'status' => 'submitted_to_gm',
+                        'current_status_at' => now(),
+                    ]);
 
-                    $fromStatus = $record->status;
-
-                    $record->status = 'revision_from_purchasing';
-                    $record->current_status_at = now();
-                    $record->save();
-
-                    $user = $this->getCurrentUser();
-
-                    PurchaseRequestLog::create([
-                        'purchase_request_id' => $record->id,
-                        'user_id' => $user?->id,
-                        'user_name' => $user?->name,
-                        'role_name' => $user?->role,
-                        'action' => 'rejected_for_revision',
-                        'from_status' => $fromStatus,
-                        'to_status' => 'revision_from_purchasing',
-                        'message' => $data['message'],
-                        'meta' => [
-                            'rejected_by' => 'purchasing',
-                            'request_number' => $record->request_number,
-                        ],
-                        'acted_at' => now(),
+                    $this->record->logs()->create([
+                        'user_id' => Auth::id(),
+                        'action' => 'submitted_to_gm',
+                        'message' => 'Purchase request submitted to GM.',
                     ]);
 
                     Notification::make()
-                        ->title('Purchase request sent back for revision.')
                         ->success()
+                        ->title('Purchase request submitted to GM.')
                         ->send();
 
-                    $this->redirect($this->getResource()::getUrl('index'));
+                    $this->refreshFormData([
+                        'status',
+                        'current_status_at',
+                    ]);
                 }),
+
+            ActionGroup::make([
+                Action::make('holdByAccounting')
+                    ->label('Hold')
+                    ->icon('heroicon-m-pause-circle')
+                    ->color('gray')
+                    ->form([
+                        Textarea::make('message')
+                            ->label('Hold Message')
+                            ->required()
+                            ->rows(4),
+                    ])
+                    ->action(function (array $data) {
+                        $this->record->update([
+                            'status' => 'on_hold_by_accounting',
+                            'current_status_at' => now(),
+                        ]);
+
+                        $this->record->logs()->create([
+                            'user_id' => Auth::id(),
+                            'action' => 'on_hold_by_accounting',
+                            'message' => $data['message'],
+                        ]);
+
+                        Notification::make()
+                            ->success()
+                            ->title('Purchase request placed on hold.')
+                            ->send();
+
+                        $this->refreshFormData([
+                            'status',
+                            'current_status_at',
+                        ]);
+                    }),
+
+                Action::make('returnToPurchasingFromAccounting')
+                    ->label('Return to Purchasing')
+                    ->icon('heroicon-m-arrow-uturn-left')
+                    ->color('warning')
+                    ->form([
+                        Textarea::make('message')
+                            ->label('Return Message')
+                            ->required()
+                            ->rows(4),
+                    ])
+                    ->action(function (array $data) {
+                        $this->record->update([
+                            'status' => 'revision_to_purchasing_from_accounting',
+                            'current_status_at' => now(),
+                        ]);
+
+                        $this->record->logs()->create([
+                            'user_id' => Auth::id(),
+                            'action' => 'revision_to_purchasing_from_accounting',
+                            'message' => $data['message'],
+                        ]);
+
+                        Notification::make()
+                            ->success()
+                            ->title('Purchase request returned to Purchasing.')
+                            ->send();
+
+                        $this->refreshFormData([
+                            'status',
+                            'current_status_at',
+                        ]);
+                    }),
+
+                Action::make('returnToRequesterFromAccounting')
+                    ->label('Return to Requester')
+                    ->icon('heroicon-m-arrow-uturn-left')
+                    ->color('danger')
+                    ->form([
+                        Textarea::make('message')
+                            ->label('Return Message')
+                            ->required()
+                            ->rows(4),
+                    ])
+                    ->action(function (array $data) {
+                        $this->record->update([
+                            'status' => 'revision_to_requester_from_accounting',
+                            'current_status_at' => now(),
+                        ]);
+
+                        $this->record->logs()->create([
+                            'user_id' => Auth::id(),
+                            'action' => 'revision_to_requester_from_accounting',
+                            'message' => $data['message'],
+                        ]);
+
+                        Notification::make()
+                            ->success()
+                            ->title('Purchase request returned to Requester.')
+                            ->send();
+
+                        $this->refreshFormData([
+                            'status',
+                            'current_status_at',
+                        ]);
+                    }),
+            ])
+                ->label('Accounting Actions')
+                ->button()
+                ->color('gray')
+                ->icon('heroicon-m-ellipsis-horizontal')
+                ->visible(fn() => $this->canAccountingReturn()),
+
+            Action::make('approveByGm')
+                ->label('Approve')
+                ->color('success')
+                ->icon('heroicon-m-check-circle')
+                ->requiresConfirmation()
+                ->visible(fn() => $this->canGmApprove())
+                ->action(function () {
+                    $this->record->update([
+                        'status' => 'approved',
+                        'current_status_at' => now(),
+                    ]);
+
+                    $this->record->logs()->create([
+                        'user_id' => Auth::id(),
+                        'action' => 'approved',
+                        'message' => 'Purchase request approved by GM.',
+                    ]);
+
+                    Notification::make()
+                        ->success()
+                        ->title('Purchase request approved.')
+                        ->send();
+
+                    $this->refreshFormData([
+                        'status',
+                        'current_status_at',
+                    ]);
+                }),
+
+            ActionGroup::make([
+                Action::make('holdByGm')
+                    ->label('Hold')
+                    ->icon('heroicon-m-pause-circle')
+                    ->color('gray')
+                    ->form([
+                        Textarea::make('message')
+                            ->label('Hold Message')
+                            ->required()
+                            ->rows(4),
+                    ])
+                    ->action(function (array $data) {
+                        $this->record->update([
+                            'status' => 'on_hold_by_gm',
+                            'current_status_at' => now(),
+                        ]);
+
+                        $this->record->logs()->create([
+                            'user_id' => Auth::id(),
+                            'action' => 'on_hold_by_gm',
+                            'message' => $data['message'],
+                        ]);
+
+                        Notification::make()
+                            ->success()
+                            ->title('Purchase request placed on hold.')
+                            ->send();
+
+                        $this->refreshFormData([
+                            'status',
+                            'current_status_at',
+                        ]);
+                    }),
+
+                Action::make('returnToPurchasingFromGm')
+                    ->label('Return to Purchasing')
+                    ->icon('heroicon-m-arrow-uturn-left')
+                    ->color('warning')
+                    ->form([
+                        Textarea::make('message')
+                            ->label('Return Message')
+                            ->required()
+                            ->rows(4),
+                    ])
+                    ->action(function (array $data) {
+                        $this->record->update([
+                            'status' => 'revision_to_purchasing_from_gm',
+                            'current_status_at' => now(),
+                        ]);
+
+                        $this->record->logs()->create([
+                            'user_id' => Auth::id(),
+                            'action' => 'revision_to_purchasing_from_gm',
+                            'message' => $data['message'],
+                        ]);
+
+                        Notification::make()
+                            ->success()
+                            ->title('Purchase request returned to Purchasing.')
+                            ->send();
+
+                        $this->refreshFormData([
+                            'status',
+                            'current_status_at',
+                        ]);
+                    }),
+
+                Action::make('returnToAccountingFromGm')
+                    ->label('Return to Accounting')
+                    ->icon('heroicon-m-arrow-uturn-left')
+                    ->color('warning')
+                    ->form([
+                        Textarea::make('message')
+                            ->label('Return Message')
+                            ->required()
+                            ->rows(4),
+                    ])
+                    ->action(function (array $data) {
+                        $this->record->update([
+                            'status' => 'revision_to_accounting_from_gm',
+                            'current_status_at' => now(),
+                        ]);
+
+                        $this->record->logs()->create([
+                            'user_id' => Auth::id(),
+                            'action' => 'revision_to_accounting_from_gm',
+                            'message' => $data['message'],
+                        ]);
+
+                        Notification::make()
+                            ->success()
+                            ->title('Purchase request returned to Accounting.')
+                            ->send();
+
+                        $this->refreshFormData([
+                            'status',
+                            'current_status_at',
+                        ]);
+                    }),
+
+                Action::make('returnToRequesterFromGm')
+                    ->label('Return to Requester')
+                    ->icon('heroicon-m-arrow-uturn-left')
+                    ->color('danger')
+                    ->form([
+                        Textarea::make('message')
+                            ->label('Return Message')
+                            ->required()
+                            ->rows(4),
+                    ])
+                    ->action(function (array $data) {
+                        $this->record->update([
+                            'status' => 'revision_to_requester_from_gm',
+                            'current_status_at' => now(),
+                        ]);
+
+                        $this->record->logs()->create([
+                            'user_id' => Auth::id(),
+                            'action' => 'revision_to_requester_from_gm',
+                            'message' => $data['message'],
+                        ]);
+
+                        Notification::make()
+                            ->success()
+                            ->title('Purchase request returned to Requester.')
+                            ->send();
+
+                        $this->refreshFormData([
+                            'status',
+                            'current_status_at',
+                        ]);
+                    }),
+            ])
+                ->label('GM Actions')
+                ->button()
+                ->color('gray')
+                ->icon('heroicon-m-ellipsis-horizontal')
+                ->visible(fn() => $this->canGmReturn()),
         ];
     }
 
@@ -268,6 +568,8 @@ class EditPurchaseRequest extends EditRecord
             'revision_from_purchasing',
             'revision_from_accounting',
             'revision_from_gm',
+            'revision_to_requester_from_accounting',
+            'revision_to_requester_from_gm',
         ], true);
     }
 
@@ -279,7 +581,98 @@ class EditPurchaseRequest extends EditRecord
             return false;
         }
 
-        return $this->record->status === 'submitted_to_purchasing';
+        return in_array($this->record->status, [
+            'submitted',
+            'revision_to_purchasing_from_accounting',
+            'revision_to_purchasing_from_gm',
+        ], true);
+    }
+
+    protected function canPurchasingSubmitToAccounting(): bool
+    {
+        $user = $this->getCurrentUser();
+
+        if (! $user || ! ($user->isPurchasing() || $user->isAdmin())) {
+            return false;
+        }
+
+        return in_array($this->record->status, [
+            'submitted',
+            'revision_to_purchasing_from_accounting',
+            'revision_to_purchasing_from_gm',
+        ], true);
+    }
+
+    protected function canAccountingSubmitToGm(): bool
+    {
+        $user = $this->getCurrentUser();
+
+        if (! $user || ! ($user->isAccounting() || $user->isAdmin())) {
+            return false;
+        }
+
+        return in_array($this->record->status, [
+            'submitted_to_accounting',
+            'on_hold_by_accounting',
+            'revision_to_accounting_from_gm',
+        ], true);
+    }
+
+    protected function canAccountingReturn(): bool
+    {
+        $user = $this->getCurrentUser();
+
+        if (! $user || ! ($user->isAccounting() || $user->isAdmin())) {
+            return false;
+        }
+
+        return in_array($this->record->status, [
+            'submitted_to_accounting',
+            'on_hold_by_accounting',
+            'revision_to_accounting_from_gm',
+        ], true);
+    }
+
+    protected function canGmApprove(): bool
+    {
+        $user = $this->getCurrentUser();
+
+        if (! $user || ! ($user->isGm() || $user->isAdmin())) {
+            return false;
+        }
+
+        return in_array($this->record->status, [
+            'submitted_to_gm',
+            'on_hold_by_gm',
+        ], true);
+    }
+
+    protected function canGmHold(): bool
+    {
+        $user = $this->getCurrentUser();
+
+        if (! $user || ! ($user->isGm() || $user->isAdmin())) {
+            return false;
+        }
+
+        return in_array($this->record->status, [
+            'submitted_to_gm',
+            'on_hold_by_gm',
+        ], true);
+    }
+
+    protected function canGmReturn(): bool
+    {
+        $user = $this->getCurrentUser();
+
+        if (! $user || ! ($user->isGm() || $user->isAdmin())) {
+            return false;
+        }
+
+        return in_array($this->record->status, [
+            'submitted_to_gm',
+            'on_hold_by_gm',
+        ], true);
     }
 
     protected function generateRequestNumber(PurchaseRequest $record): string

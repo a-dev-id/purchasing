@@ -67,24 +67,76 @@ class PurchaseRequestResource extends Resource
     {
         $query = parent::getEloquentQuery();
 
-        $user = Auth::user();
+        $user = static::getCurrentUser();
 
-        if ($user instanceof User && $user->isPurchasing()) {
+        if (! $user || ! $user->is_active) {
+            return $query->whereRaw('1 = 0');
+        }
+
+        if ($user->isAdmin()) {
+            return $query;
+        }
+
+        if ($user->isRequester()) {
+            return $query->where('department_name', $user->department_name);
+        }
+
+        if ($user->isPurchasing()) {
             return $query->whereIn('status', [
-                'submitted_to_purchasing',
+                'submitted',
                 'revision_from_purchasing',
                 'submitted_to_accounting',
                 'revision_from_accounting',
+                'revision_to_purchasing_from_accounting',
+                'revision_to_requester_from_accounting',
                 'on_hold_by_accounting',
                 'submitted_to_gm',
                 'revision_from_gm',
+                'revision_to_purchasing_from_gm',
+                'revision_to_accounting_from_gm',
+                'revision_to_requester_from_gm',
                 'on_hold_by_gm',
                 'approved',
                 'rejected',
             ]);
         }
 
-        return $query;
+        if ($user->isAccounting()) {
+            return $query->whereIn('status', [
+                'submitted_to_accounting',
+                'on_hold_by_accounting',
+                'revision_from_accounting',
+                'revision_to_purchasing_from_accounting',
+                'revision_to_requester_from_accounting',
+                'submitted_to_gm',
+                'revision_from_gm',
+                'revision_to_purchasing_from_gm',
+                'revision_to_accounting_from_gm',
+                'revision_to_requester_from_gm',
+                'on_hold_by_gm',
+                'approved',
+                'rejected',
+            ]);
+        }
+
+        if ($user->isGm()) {
+            return $query->whereIn('status', [
+                'submitted_to_gm',
+                'on_hold_by_gm',
+                'revision_from_gm',
+                'revision_to_purchasing_from_gm',
+                'revision_to_accounting_from_gm',
+                'revision_to_requester_from_gm',
+                'approved',
+                'rejected',
+            ]);
+        }
+
+        if ($user->canSeeAllPurchaseRequests()) {
+            return $query;
+        }
+
+        return $query->whereRaw('1 = 0');
     }
 
     public static function canViewAny(): bool
@@ -110,7 +162,14 @@ class PurchaseRequestResource extends Resource
             return false;
         }
 
-        if ($user->canSeeAllPurchaseRequests()) {
+        if (
+            $user->isAdmin() ||
+            $user->isPurchasing() ||
+            $user->isAccounting() ||
+            $user->isGm() ||
+            $user->isOwner() ||
+            $user->canSeeAllPurchaseRequests()
+        ) {
             return true;
         }
 
@@ -130,7 +189,26 @@ class PurchaseRequestResource extends Resource
         }
 
         if ($user->isPurchasing()) {
-            return $record->status === 'submitted';
+            return in_array($record->status, [
+                'submitted',
+                'revision_to_purchasing_from_accounting',
+                'revision_to_purchasing_from_gm',
+            ], true);
+        }
+
+        if ($user->isAccounting()) {
+            return in_array($record->status, [
+                'submitted_to_accounting',
+                'on_hold_by_accounting',
+                'revision_to_accounting_from_gm',
+            ], true);
+        }
+
+        if ($user->isGm()) {
+            return in_array($record->status, [
+                'submitted_to_gm',
+                'on_hold_by_gm',
+            ], true);
         }
 
         if ($user->isRequester()) {
@@ -143,6 +221,8 @@ class PurchaseRequestResource extends Resource
                 'revision_from_purchasing',
                 'revision_from_accounting',
                 'revision_from_gm',
+                'revision_to_requester_from_accounting',
+                'revision_to_requester_from_gm',
             ], true);
         }
 

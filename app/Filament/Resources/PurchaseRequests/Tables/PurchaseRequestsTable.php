@@ -54,13 +54,17 @@ class PurchaseRequestsTable
                     ->formatStateUsing(fn(?string $state): string => match ($state) {
                         'draft' => 'Draft',
                         'submitted' => 'Waiting Purchasing',
-                        'submitted_to_purchasing' => 'Waiting Purchasing',
                         'revision_from_purchasing' => 'Revision from Purchasing',
                         'submitted_to_accounting' => 'Waiting Accounting',
                         'revision_from_accounting' => 'Revision from Accounting',
+                        'revision_to_purchasing_from_accounting' => 'Revision to Purchasing from Accounting',
+                        'revision_to_requester_from_accounting' => 'Revision to Requester from Accounting',
                         'on_hold_by_accounting' => 'On Hold by Accounting',
                         'submitted_to_gm' => 'Waiting GM',
                         'revision_from_gm' => 'Revision from GM',
+                        'revision_to_purchasing_from_gm' => 'Revision to Purchasing from GM',
+                        'revision_to_accounting_from_gm' => 'Revision to Accounting from GM',
+                        'revision_to_requester_from_gm' => 'Revision to Requester from GM',
                         'on_hold_by_gm' => 'On Hold by GM',
                         'approved' => 'Approved',
                         'rejected' => 'Rejected',
@@ -70,12 +74,16 @@ class PurchaseRequestsTable
                     ->color(fn(?string $state): string => match ($state) {
                         'draft' => 'gray',
                         'submitted',
-                        'submitted_to_purchasing',
                         'submitted_to_accounting',
-                        'submitted_to_gm' => 'warning',
+                        'submitted_to_gm',
+                        'revision_to_purchasing_from_accounting',
+                        'revision_to_purchasing_from_gm',
+                        'revision_to_accounting_from_gm' => 'warning',
                         'revision_from_purchasing',
                         'revision_from_accounting',
                         'revision_from_gm',
+                        'revision_to_requester_from_accounting',
+                        'revision_to_requester_from_gm',
                         'rejected' => 'danger',
                         'on_hold_by_accounting',
                         'on_hold_by_gm' => 'gray',
@@ -89,13 +97,17 @@ class PurchaseRequestsTable
                     ->state(fn($record) => match ($record->status) {
                         'draft' => 'Requester',
                         'submitted' => 'Purchasing',
-                        'submitted_to_purchasing' => 'Purchasing',
                         'revision_from_purchasing' => 'Requester',
                         'submitted_to_accounting' => 'Accounting',
                         'revision_from_accounting' => 'Requester',
+                        'revision_to_purchasing_from_accounting' => 'Purchasing',
+                        'revision_to_requester_from_accounting' => 'Requester',
                         'on_hold_by_accounting' => 'Accounting',
                         'submitted_to_gm' => 'GM',
                         'revision_from_gm' => 'Requester',
+                        'revision_to_purchasing_from_gm' => 'Purchasing',
+                        'revision_to_accounting_from_gm' => 'Accounting',
+                        'revision_to_requester_from_gm' => 'Requester',
                         'on_hold_by_gm' => 'GM',
                         'approved' => 'Completed',
                         'rejected' => 'Stopped',
@@ -133,7 +145,7 @@ class PurchaseRequestsTable
                     ->icon('heroicon-o-paper-airplane')
                     ->color('success')
                     ->requiresConfirmation()
-                    ->visible(fn(PurchaseRequest $record): bool => PurchaseRequestResource::canEdit($record))
+                    ->visible(fn(PurchaseRequest $record): bool => static::canShowSubmitAction($record))
                     ->action(fn(PurchaseRequest $record) => static::submitRequest($record)),
 
                 EditAction::make()
@@ -146,6 +158,28 @@ class PurchaseRequestsTable
         $user = Auth::user();
 
         return $user instanceof User ? $user : null;
+    }
+
+    protected static function canShowSubmitAction(PurchaseRequest $record): bool
+    {
+        $user = static::getCurrentUser();
+
+        if (! $user || ! $user->is_active) {
+            return false;
+        }
+
+        if (! ($user->isRequester() || $user->isAdmin())) {
+            return false;
+        }
+
+        return in_array($record->status, [
+            'draft',
+            'revision_from_purchasing',
+            'revision_from_accounting',
+            'revision_from_gm',
+            'revision_to_requester_from_accounting',
+            'revision_to_requester_from_gm',
+        ], true);
     }
 
     protected static function submitRequest(PurchaseRequest $record): void
@@ -165,7 +199,7 @@ class PurchaseRequestsTable
             $record->request_number = static::generateRequestNumber($record);
         }
 
-        $record->status = 'submitted_to_purchasing';
+        $record->status = 'submitted';
         $record->current_status_at = now();
 
         if (blank($record->submitted_at)) {
@@ -183,7 +217,7 @@ class PurchaseRequestsTable
             'role_name' => $user?->role,
             'action' => 'submitted',
             'from_status' => $fromStatus,
-            'to_status' => 'submitted_to_purchasing',
+            'to_status' => 'submitted',
             'message' => 'Submitted by requester to Purchasing: ' . $record->requester_name,
             'meta' => [
                 'request_number' => $record->request_number,
