@@ -7,18 +7,45 @@ use App\Filament\Resources\Vendors\Pages\EditVendor;
 use App\Filament\Resources\Vendors\Pages\ListVendors;
 use App\Filament\Resources\Vendors\Schemas\VendorForm;
 use App\Filament\Resources\Vendors\Tables\VendorsTable;
+use App\Models\User;
 use App\Models\Vendor;
 use BackedEnum;
 use Filament\Resources\Resource;
 use Filament\Schemas\Schema;
 use Filament\Support\Icons\Heroicon;
 use Filament\Tables\Table;
+use Illuminate\Support\Facades\Auth;
+use UnitEnum;
 
 class VendorResource extends Resource
 {
     protected static ?string $model = Vendor::class;
 
-    protected static string|BackedEnum|null $navigationIcon = Heroicon::OutlinedRectangleStack;
+    protected static string|BackedEnum|null $navigationIcon = Heroicon::CircleStack;
+
+    protected static string | UnitEnum | null $navigationGroup = 'General';
+
+    public static function shouldRegisterNavigation(): bool
+    {
+        $user = Auth::user();
+
+        if (! $user instanceof User) {
+            return false;
+        }
+
+        return $user->role !== 'requester';
+    }
+
+    public static function canViewAny(): bool
+    {
+        $user = Auth::user();
+
+        if (! $user instanceof User) {
+            return false;
+        }
+
+        return $user->role !== 'requester';
+    }
 
     public static function form(Schema $schema): Schema
     {

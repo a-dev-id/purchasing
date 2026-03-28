@@ -3,15 +3,18 @@
 namespace App\Filament\Resources\PurchaseRequests\Tables;
 
 use App\Filament\Resources\PurchaseRequests\PurchaseRequestResource;
+use App\Mail\PurchaseRequestSubmittedNotification;
 use App\Models\PurchaseRequest;
 use App\Models\PurchaseRequestLog;
 use App\Models\User;
 use Filament\Actions\Action;
 use Filament\Actions\EditAction;
+use Filament\Actions\ViewAction;
 use Filament\Notifications\Notification;
 use Filament\Tables\Columns\TextColumn;
 use Filament\Tables\Table;
 use Illuminate\Support\Facades\Auth;
+use Illuminate\Support\Facades\Mail;
 
 class PurchaseRequestsTable
 {
@@ -20,24 +23,32 @@ class PurchaseRequestsTable
         return $table
             ->columns([
                 TextColumn::make('request_number')
-                    ->label('PR No.')
+                    ->label('PR')
                     ->searchable()
-                    ->placeholder('Draft'),
+                    ->placeholder('Draft')
+                    ->copyable()
+                    ->toggleable(),
 
                 TextColumn::make('requester_name')
-                    ->label('Requester Name')
+                    ->label('Requester')
                     ->searchable()
-                    ->sortable(),
+                    ->sortable()
+                    ->limit(16)
+                    ->tooltip(fn($record) => $record->requester_name)
+                    ->toggleable(),
 
                 TextColumn::make('title')
-                    ->label('Request Name')
+                    ->label('Request')
                     ->searchable()
-                    ->wrap(),
+                    ->limit(18)
+                    ->tooltip(fn($record) => $record->title)
+                    ->toggleable(),
 
                 TextColumn::make('department_name')
-                    ->label('Department')
+                    ->label('Dept')
                     ->searchable()
-                    ->sortable(),
+                    ->sortable()
+                    ->toggleable(),
 
                 TextColumn::make('priority')
                     ->badge()
@@ -46,28 +57,30 @@ class PurchaseRequestsTable
                         'urgent' => 'danger',
                         'normal' => 'info',
                         default => 'gray',
-                    }),
+                    })
+                    ->toggleable(),
 
                 TextColumn::make('status')
                     ->label('Status')
                     ->badge()
                     ->formatStateUsing(fn(?string $state): string => match ($state) {
                         'draft' => 'Draft',
-                        'submitted' => 'Waiting Purchasing',
-                        'revision_from_purchasing' => 'Revision from Purchasing',
-                        'submitted_to_accounting' => 'Waiting Accounting',
-                        'revision_from_accounting' => 'Revision from Accounting',
-                        'revision_to_purchasing_from_accounting' => 'Revision to Purchasing from Accounting',
-                        'revision_to_requester_from_accounting' => 'Revision to Requester from Accounting',
-                        'on_hold_by_accounting' => 'On Hold by Accounting',
-                        'submitted_to_gm' => 'Waiting GM',
-                        'revision_from_gm' => 'Revision from GM',
-                        'revision_to_purchasing_from_gm' => 'Revision to Purchasing from GM',
-                        'revision_to_accounting_from_gm' => 'Revision to Accounting from GM',
-                        'revision_to_requester_from_gm' => 'Revision to Requester from GM',
-                        'on_hold_by_gm' => 'On Hold by GM',
+                        'submitted' => 'To Purchasing',
+                        'revision_from_purchasing' => 'Rev. Purchasing',
+                        'submitted_to_accounting' => 'To Accounting',
+                        'revision_from_accounting' => 'Rev. Accounting',
+                        'revision_to_purchasing_from_accounting' => 'Back to Purchasing',
+                        'revision_to_requester_from_accounting' => 'Back to Requester',
+                        'on_hold_by_accounting' => 'Hold Accounting',
+                        'submitted_to_gm' => 'To GM',
+                        'revision_from_gm' => 'Rev. GM',
+                        'revision_to_purchasing_from_gm' => 'Back to Purchasing',
+                        'revision_to_accounting_from_gm' => 'Back to Accounting',
+                        'revision_to_requester_from_gm' => 'Back to Requester',
+                        'on_hold_by_gm' => 'Hold GM',
                         'approved' => 'Approved',
                         'rejected' => 'Rejected',
+                        'cancelled' => 'Cancelled',
                         null, '' => '-',
                         default => str($state)->replace('_', ' ')->title(),
                     })
@@ -84,15 +97,17 @@ class PurchaseRequestsTable
                         'revision_from_gm',
                         'revision_to_requester_from_accounting',
                         'revision_to_requester_from_gm',
-                        'rejected' => 'danger',
+                        'rejected',
+                        'cancelled' => 'danger',
                         'on_hold_by_accounting',
                         'on_hold_by_gm' => 'gray',
                         'approved' => 'success',
                         default => 'gray',
-                    }),
+                    })
+                    ->toggleable(),
 
                 TextColumn::make('current_desk')
-                    ->label('Current Desk')
+                    ->label('Desk')
                     ->badge()
                     ->state(fn($record) => match ($record->status) {
                         'draft' => 'Requester',
@@ -109,8 +124,9 @@ class PurchaseRequestsTable
                         'revision_to_accounting_from_gm' => 'Accounting',
                         'revision_to_requester_from_gm' => 'Requester',
                         'on_hold_by_gm' => 'GM',
-                        'approved' => 'Completed',
+                        'approved' => 'Done',
                         'rejected' => 'Stopped',
+                        'cancelled' => 'Cancelled',
                         default => '-',
                     })
                     ->color(fn(string $state): string => match ($state) {
@@ -118,25 +134,31 @@ class PurchaseRequestsTable
                         'Purchasing' => 'warning',
                         'Accounting' => 'info',
                         'GM' => 'danger',
-                        'Completed' => 'success',
+                        'Done' => 'success',
                         'Stopped' => 'danger',
+                        'Cancelled' => 'danger',
                         default => 'gray',
-                    }),
+                    })
+                    ->toggleable(),
 
                 TextColumn::make('items_count')
                     ->label('Items')
-                    ->counts('items'),
+                    ->counts('items')
+                    ->alignCenter()
+                    ->toggleable(),
 
                 TextColumn::make('submitted_at')
                     ->label('Submitted')
-                    ->dateTime('d M Y H:i')
+                    ->dateTime('d M H:i')
                     ->sortable()
-                    ->placeholder('-'),
+                    ->placeholder('-')
+                    ->toggleable(),
 
                 TextColumn::make('updated_at')
-                    ->label('Last Update')
-                    ->dateTime('d M Y H:i')
-                    ->sortable(),
+                    ->label('Updated')
+                    ->dateTime('d M H:i')
+                    ->sortable()
+                    ->toggleable(),
             ])
             ->defaultSort('id', 'desc')
             ->recordActions([
@@ -147,6 +169,10 @@ class PurchaseRequestsTable
                     ->requiresConfirmation()
                     ->visible(fn(PurchaseRequest $record): bool => static::canShowSubmitAction($record))
                     ->action(fn(PurchaseRequest $record) => static::submitRequest($record)),
+
+                ViewAction::make()
+                    ->label('View')
+                    ->visible(fn(PurchaseRequest $record): bool => $record->status === 'approved'),
 
                 EditAction::make()
                     ->visible(fn(PurchaseRequest $record): bool => PurchaseRequestResource::canEdit($record)),
@@ -227,10 +253,25 @@ class PurchaseRequestsTable
             'acted_at' => now(),
         ]);
 
+        static::sendSubmittedEmailToPurchasing($record, $fromStatus);
+
         Notification::make()
             ->title('Purchase request submitted to Purchasing.')
             ->success()
             ->send();
+    }
+
+    protected static function sendSubmittedEmailToPurchasing(PurchaseRequest $record, string $fromStatus = 'draft'): void
+    {
+        $emails = config('mail.purchasing_notification_emails', []);
+
+        if (empty($emails)) {
+            return;
+        }
+
+        Mail::to($emails)->send(
+            new PurchaseRequestSubmittedNotification($record, $fromStatus)
+        );
     }
 
     protected static function generateRequestNumber(PurchaseRequest $record): string

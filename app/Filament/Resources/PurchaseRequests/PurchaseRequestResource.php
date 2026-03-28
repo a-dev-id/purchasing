@@ -5,6 +5,7 @@ namespace App\Filament\Resources\PurchaseRequests;
 use App\Filament\Resources\PurchaseRequests\Pages\CreatePurchaseRequest;
 use App\Filament\Resources\PurchaseRequests\Pages\EditPurchaseRequest;
 use App\Filament\Resources\PurchaseRequests\Pages\ListPurchaseRequests;
+use App\Filament\Resources\PurchaseRequests\Pages\ViewPurchaseRequest;
 use App\Filament\Resources\PurchaseRequests\Schemas\PurchaseRequestForm;
 use App\Filament\Resources\PurchaseRequests\Tables\PurchaseRequestsTable;
 use App\Models\PurchaseRequest;
@@ -23,7 +24,7 @@ class PurchaseRequestResource extends Resource
 {
     protected static ?string $model = PurchaseRequest::class;
 
-    protected static string | BackedEnum | null $navigationIcon = Heroicon::OutlinedRectangleStack;
+    protected static string | BackedEnum | null $navigationIcon = Heroicon::OutlinedDocumentCurrencyDollar;
     protected static ?string $navigationLabel = 'Purchase Requests';
     protected static ?string $modelLabel = 'Purchase Request';
     protected static ?string $pluralModelLabel = 'Purchase Requests';
@@ -52,6 +53,7 @@ class PurchaseRequestResource extends Resource
         return [
             'index' => ListPurchaseRequests::route('/'),
             'create' => CreatePurchaseRequest::route('/create'),
+            'view' => ViewPurchaseRequest::route('/{record}'),
             'edit' => EditPurchaseRequest::route('/{record}/edit'),
         ];
     }

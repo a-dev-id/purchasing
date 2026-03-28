@@ -3,6 +3,9 @@
 namespace App\Filament\Resources\PurchaseRequests\Pages;
 
 use App\Filament\Resources\PurchaseRequests\PurchaseRequestResource;
+use App\Mail\PurchaseRequestReturnedToRequesterNotification;
+use App\Mail\PurchaseRequestSubmittedNotification;
+use App\Mail\PurchaseRequestApprovedNotification;
 use App\Models\Item;
 use App\Models\PurchaseRequest;
 use App\Models\User;
@@ -13,6 +16,7 @@ use Filament\Forms\Components\Textarea;
 use Filament\Notifications\Notification;
 use Filament\Resources\Pages\EditRecord;
 use Illuminate\Support\Facades\Auth;
+use Illuminate\Support\Facades\Mail;
 
 class EditPurchaseRequest extends EditRecord
 {
@@ -28,6 +32,8 @@ class EditPurchaseRequest extends EditRecord
                 ->requiresConfirmation()
                 ->visible(fn() => $this->canRequesterSubmit())
                 ->action(function () {
+                    $fromStatus = $this->record->status;
+
                     if (blank($this->record->request_number)) {
                         $this->record->request_number = $this->generateRequestNumber($this->record);
                     }
@@ -46,6 +52,8 @@ class EditPurchaseRequest extends EditRecord
                         'message' => 'Purchase request submitted to Purchasing.',
                     ]);
 
+                    $this->sendSubmittedEmailToPurchasing($this->record, $fromStatus);
+
                     Notification::make()
                         ->success()
                         ->title('Purchase request submitted.')
@@ -57,6 +65,34 @@ class EditPurchaseRequest extends EditRecord
                         'status',
                         'current_status_at',
                     ]);
+                }),
+
+            Action::make('cancelRequest')
+                ->label('Cancel PR')
+                ->color('danger')
+                ->icon('heroicon-m-x-circle')
+                ->requiresConfirmation()
+                ->modalHeading('Cancel Purchase Request')
+                ->modalDescription('This purchase request will be marked as cancelled and kept for history.')
+                ->visible(fn() => $this->canCancelRequest())
+                ->action(function () {
+                    $this->record->update([
+                        'status' => 'cancelled',
+                        'current_status_at' => now(),
+                    ]);
+
+                    $this->record->logs()->create([
+                        'user_id' => Auth::id(),
+                        'action' => 'cancelled',
+                        'message' => 'Purchase request cancelled.',
+                    ]);
+
+                    Notification::make()
+                        ->success()
+                        ->title('Purchase request cancelled.')
+                        ->send();
+
+                    $this->redirect(PurchaseRequestResource::getUrl('index'));
                 }),
 
             Action::make('submitToAccounting')
@@ -76,6 +112,11 @@ class EditPurchaseRequest extends EditRecord
                         'action' => 'submitted_to_accounting',
                         'message' => 'Purchase request submitted to Accounting.',
                     ]);
+
+                    $this->sendSubmittedEmailToAccounting(
+                        $this->record,
+                        'submitted_to_accounting'
+                    );
 
                     Notification::make()
                         ->success()
@@ -111,6 +152,12 @@ class EditPurchaseRequest extends EditRecord
                             'message' => $data['message'],
                         ]);
 
+                        $this->sendReturnedToRequesterEmail(
+                            $this->record,
+                            $data['message'],
+                            'Purchasing'
+                        );
+
                         Notification::make()
                             ->success()
                             ->title('Purchase request returned to Requester.')
@@ -145,6 +192,11 @@ class EditPurchaseRequest extends EditRecord
                         'action' => 'submitted_to_gm',
                         'message' => 'Purchase request submitted to GM.',
                     ]);
+
+                    $this->sendSubmittedEmailToGm(
+                        $this->record,
+                        'submitted_to_gm'
+                    );
 
                     Notification::make()
                         ->success()
@@ -213,6 +265,11 @@ class EditPurchaseRequest extends EditRecord
                             'message' => $data['message'],
                         ]);
 
+                        $this->sendSubmittedEmailToPurchasing(
+                            $this->record,
+                            'revision_to_purchasing_from_accounting'
+                        );
+
                         Notification::make()
                             ->success()
                             ->title('Purchase request returned to Purchasing.')
@@ -245,6 +302,12 @@ class EditPurchaseRequest extends EditRecord
                             'action' => 'revision_to_requester_from_accounting',
                             'message' => $data['message'],
                         ]);
+
+                        $this->sendReturnedToRequesterEmail(
+                            $this->record,
+                            $data['message'],
+                            'Accounting'
+                        );
 
                         Notification::make()
                             ->success()
@@ -280,6 +343,8 @@ class EditPurchaseRequest extends EditRecord
                         'action' => 'approved',
                         'message' => 'Purchase request approved by GM.',
                     ]);
+
+                    $this->sendApprovedEmailToEveryone($this->record);
 
                     Notification::make()
                         ->success()
@@ -326,39 +391,6 @@ class EditPurchaseRequest extends EditRecord
                         ]);
                     }),
 
-                Action::make('returnToPurchasingFromGm')
-                    ->label('Return to Purchasing')
-                    ->icon('heroicon-m-arrow-uturn-left')
-                    ->color('warning')
-                    ->form([
-                        Textarea::make('message')
-                            ->label('Return Message')
-                            ->required()
-                            ->rows(4),
-                    ])
-                    ->action(function (array $data) {
-                        $this->record->update([
-                            'status' => 'revision_to_purchasing_from_gm',
-                            'current_status_at' => now(),
-                        ]);
-
-                        $this->record->logs()->create([
-                            'user_id' => Auth::id(),
-                            'action' => 'revision_to_purchasing_from_gm',
-                            'message' => $data['message'],
-                        ]);
-
-                        Notification::make()
-                            ->success()
-                            ->title('Purchase request returned to Purchasing.')
-                            ->send();
-
-                        $this->refreshFormData([
-                            'status',
-                            'current_status_at',
-                        ]);
-                    }),
-
                 Action::make('returnToAccountingFromGm')
                     ->label('Return to Accounting')
                     ->icon('heroicon-m-arrow-uturn-left')
@@ -381,9 +413,52 @@ class EditPurchaseRequest extends EditRecord
                             'message' => $data['message'],
                         ]);
 
+                        $this->sendSubmittedEmailToAccounting(
+                            $this->record,
+                            'revision_to_accounting_from_gm'
+                        );
+
                         Notification::make()
                             ->success()
                             ->title('Purchase request returned to Accounting.')
+                            ->send();
+
+                        $this->refreshFormData([
+                            'status',
+                            'current_status_at',
+                        ]);
+                    }),
+
+                Action::make('returnToPurchasingFromGm')
+                    ->label('Return to Purchasing')
+                    ->icon('heroicon-m-arrow-uturn-left')
+                    ->color('warning')
+                    ->form([
+                        Textarea::make('message')
+                            ->label('Return Message')
+                            ->required()
+                            ->rows(4),
+                    ])
+                    ->action(function (array $data) {
+                        $this->record->update([
+                            'status' => 'revision_to_purchasing_from_gm',
+                            'current_status_at' => now(),
+                        ]);
+
+                        $this->record->logs()->create([
+                            'user_id' => Auth::id(),
+                            'action' => 'revision_to_purchasing_from_gm',
+                            'message' => $data['message'],
+                        ]);
+
+                        $this->sendSubmittedEmailToPurchasing(
+                            $this->record,
+                            'revision_to_purchasing_from_gm'
+                        );
+
+                        Notification::make()
+                            ->success()
+                            ->title('Purchase request returned to Purchasing.')
                             ->send();
 
                         $this->refreshFormData([
@@ -413,6 +488,12 @@ class EditPurchaseRequest extends EditRecord
                             'action' => 'revision_to_requester_from_gm',
                             'message' => $data['message'],
                         ]);
+
+                        $this->sendReturnedToRequesterEmail(
+                            $this->record,
+                            $data['message'],
+                            'GM'
+                        );
 
                         Notification::make()
                             ->success()
@@ -548,6 +629,114 @@ class EditPurchaseRequest extends EditRecord
         }
     }
 
+    protected function sendSubmittedEmailToPurchasing(PurchaseRequest $purchaseRequest, string $fromStatus = 'draft'): void
+    {
+        $emails = config('mail.purchasing_notification_emails', []);
+
+        if (empty($emails)) {
+            return;
+        }
+
+        Mail::to($emails)->send(
+            new PurchaseRequestSubmittedNotification($purchaseRequest, $fromStatus)
+        );
+    }
+
+    protected function sendSubmittedEmailToAccounting(PurchaseRequest $purchaseRequest, string $fromStatus = 'submitted_to_accounting'): void
+    {
+        $emails = config('mail.accounting_notification_emails', []);
+
+        if (empty($emails)) {
+            return;
+        }
+
+        Mail::to($emails)->send(
+            new PurchaseRequestSubmittedNotification($purchaseRequest, $fromStatus)
+        );
+    }
+
+    protected function sendSubmittedEmailToGm(PurchaseRequest $purchaseRequest, string $fromStatus = 'submitted_to_gm'): void
+    {
+        $emails = config('mail.gm_notification_emails', []);
+
+        if (empty($emails)) {
+            return;
+        }
+
+        Mail::to($emails)->send(
+            new PurchaseRequestSubmittedNotification($purchaseRequest, $fromStatus)
+        );
+    }
+
+    protected function sendApprovedEmailToEveryone(PurchaseRequest $purchaseRequest): void
+    {
+        $requesterEmails = User::query()
+            ->where('role', 'requester')
+            ->where('is_active', true)
+            ->where('department_name', $purchaseRequest->department_name)
+            ->whereNotNull('email')
+            ->pluck('email')
+            ->filter()
+            ->map(fn($email) => trim((string) $email))
+            ->filter()
+            ->unique()
+            ->values()
+            ->all();
+
+        $emails = collect([
+            ...$requesterEmails,
+            ...config('mail.purchasing_notification_emails', []),
+            ...config('mail.accounting_notification_emails', []),
+            ...config('mail.gm_notification_emails', []),
+            ...config('mail.owner_notification_emails', []),
+        ])
+            ->filter()
+            ->map(fn($email) => trim((string) $email))
+            ->filter()
+            ->unique()
+            ->values()
+            ->all();
+
+        if (empty($emails)) {
+            return;
+        }
+
+        Mail::to($emails)->send(
+            new PurchaseRequestApprovedNotification($purchaseRequest)
+        );
+    }
+
+    protected function sendReturnedToRequesterEmail(
+        PurchaseRequest $purchaseRequest,
+        ?string $messageText = null,
+        string $returnedByLabel = 'Purchasing'
+    ): void {
+        $emails = User::query()
+            ->where('role', 'requester')
+            ->where('is_active', true)
+            ->where('department_name', $purchaseRequest->department_name)
+            ->whereNotNull('email')
+            ->pluck('email')
+            ->filter()
+            ->map(fn($email) => trim((string) $email))
+            ->filter()
+            ->unique()
+            ->values()
+            ->all();
+
+        if (empty($emails)) {
+            return;
+        }
+
+        Mail::to($emails)->send(
+            new PurchaseRequestReturnedToRequesterNotification(
+                $purchaseRequest,
+                $messageText,
+                $returnedByLabel
+            )
+        );
+    }
+
     protected function getCurrentUser(): ?User
     {
         $user = Auth::user();
@@ -571,6 +760,36 @@ class EditPurchaseRequest extends EditRecord
             'revision_to_requester_from_accounting',
             'revision_to_requester_from_gm',
         ], true);
+    }
+
+    protected function canCancelRequest(): bool
+    {
+        $user = $this->getCurrentUser();
+
+        if (! $user) {
+            return false;
+        }
+
+        if ($user->isAdmin()) {
+            return ! in_array($this->record->status, [
+                'approved',
+                'rejected',
+                'cancelled',
+            ], true);
+        }
+
+        if ($user->isRequester()) {
+            return in_array($this->record->status, [
+                'draft',
+                'revision_from_purchasing',
+                'revision_from_accounting',
+                'revision_from_gm',
+                'revision_to_requester_from_accounting',
+                'revision_to_requester_from_gm',
+            ], true);
+        }
+
+        return false;
     }
 
     protected function canPurchasingReject(): bool

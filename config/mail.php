@@ -115,4 +115,15 @@ return [
         'name' => env('MAIL_FROM_NAME', env('APP_NAME', 'Laravel')),
     ],
 
+    /*
+    |--------------------------------------------------------------------------
+    | Workflow Notification Receivers
+    |--------------------------------------------------------------------------
+    */
+
+    'purchasing_notification_emails' => array_values(array_filter(array_map('trim', explode(',', (string) env('PURCHASING_NOTIFICATION_EMAILS', ''))))),
+    'accounting_notification_emails' => array_values(array_filter(array_map('trim', explode(',', (string) env('ACCOUNTING_NOTIFICATION_EMAILS', ''))))),
+    'gm_notification_emails' => array_values(array_filter(array_map('trim', explode(',', (string) env('GM_NOTIFICATION_EMAILS', ''))))),
+    'owner_notification_emails' => array_values(array_filter(array_map('trim', explode(',', (string) env('OWNER_NOTIFICATION_EMAILS', ''))))),
+
 ];
