@@ -19,6 +19,8 @@ use Illuminate\Routing\Middleware\SubstituteBindings;
 use Illuminate\Session\Middleware\StartSession;
 use Illuminate\View\Middleware\ShareErrorsFromSession;
 
+use App\Filament\Auth\Login;
+
 class PurchasingPanelProvider extends PanelProvider
 {
     public function panel(Panel $panel): Panel
@@ -27,7 +29,7 @@ class PurchasingPanelProvider extends PanelProvider
             ->default()
             ->id('purchasing')
             ->path('purchasing')
-            ->login()
+            ->login(Login::class)
             ->colors([
                 'primary' => Color::Amber,
             ])

@@ -65,6 +65,100 @@ class PurchaseRequestResource extends Resource
         return $user instanceof User ? $user : null;
     }
 
+    protected static function getUserRole(?User $user): string
+    {
+        return strtolower(trim((string) ($user?->role ?? '')));
+    }
+
+    protected static function isAdminUser(?User $user): bool
+    {
+        $role = static::getUserRole($user);
+
+        if (in_array($role, ['admin', 'administrator', 'super_admin', 'super-admin'], true)) {
+            return true;
+        }
+
+        return $user instanceof User
+            && method_exists($user, 'isAdmin')
+            && $user->isAdmin();
+    }
+
+    protected static function isOwnerUser(?User $user): bool
+    {
+        $role = static::getUserRole($user);
+
+        if (in_array($role, ['owner'], true)) {
+            return true;
+        }
+
+        return $user instanceof User
+            && method_exists($user, 'isOwner')
+            && $user->isOwner();
+    }
+
+    protected static function isRequesterUser(?User $user): bool
+    {
+        $role = static::getUserRole($user);
+
+        if (in_array($role, ['requester'], true)) {
+            return true;
+        }
+
+        return $user instanceof User
+            && method_exists($user, 'isRequester')
+            && $user->isRequester();
+    }
+
+    protected static function isPurchasingUser(?User $user): bool
+    {
+        $role = static::getUserRole($user);
+
+        if (in_array($role, ['purchasing'], true)) {
+            return true;
+        }
+
+        return $user instanceof User
+            && method_exists($user, 'isPurchasing')
+            && $user->isPurchasing();
+    }
+
+    protected static function isAccountingUser(?User $user): bool
+    {
+        $role = static::getUserRole($user);
+
+        if (in_array($role, ['accounting'], true)) {
+            return true;
+        }
+
+        return $user instanceof User
+            && method_exists($user, 'isAccounting')
+            && $user->isAccounting();
+    }
+
+    protected static function isGmUser(?User $user): bool
+    {
+        $role = static::getUserRole($user);
+
+        if (in_array($role, ['gm', 'general_manager', 'general-manager'], true)) {
+            return true;
+        }
+
+        return $user instanceof User
+            && method_exists($user, 'isGm')
+            && $user->isGm();
+    }
+
+    protected static function canSeeAllUserPurchaseRequests(?User $user): bool
+    {
+        if (static::isAdminUser($user) || static::isOwnerUser($user)) {
+            return true;
+        }
+
+        return $user instanceof User
+            && method_exists($user, 'canSeeAllPurchaseRequests')
+            && $user->canSeeAllPurchaseRequests();
+    }
+
     public static function getEloquentQuery(): Builder
     {
         $query = parent::getEloquentQuery();
@@ -75,15 +169,15 @@ class PurchaseRequestResource extends Resource
             return $query->whereRaw('1 = 0');
         }
 
-        if ($user->isAdmin()) {
+        if (static::canSeeAllUserPurchaseRequests($user)) {
             return $query;
         }
 
-        if ($user->isRequester()) {
+        if (static::isRequesterUser($user)) {
             return $query->where('department_name', $user->department_name);
         }
 
-        if ($user->isPurchasing()) {
+        if (static::isPurchasingUser($user)) {
             return $query->whereIn('status', [
                 'submitted',
                 'revision_from_purchasing',
@@ -100,10 +194,11 @@ class PurchaseRequestResource extends Resource
                 'on_hold_by_gm',
                 'approved',
                 'rejected',
+                'cancelled',
             ]);
         }
 
-        if ($user->isAccounting()) {
+        if (static::isAccountingUser($user)) {
             return $query->whereIn('status', [
                 'submitted_to_accounting',
                 'on_hold_by_accounting',
@@ -118,10 +213,11 @@ class PurchaseRequestResource extends Resource
                 'on_hold_by_gm',
                 'approved',
                 'rejected',
+                'cancelled',
             ]);
         }
 
-        if ($user->isGm()) {
+        if (static::isGmUser($user)) {
             return $query->whereIn('status', [
                 'submitted_to_gm',
                 'on_hold_by_gm',
@@ -131,11 +227,8 @@ class PurchaseRequestResource extends Resource
                 'revision_to_requester_from_gm',
                 'approved',
                 'rejected',
+                'cancelled',
             ]);
-        }
-
-        if ($user->canSeeAllPurchaseRequests()) {
-            return $query;
         }
 
         return $query->whereRaw('1 = 0');
@@ -152,8 +245,17 @@ class PurchaseRequestResource extends Resource
     {
         $user = static::getCurrentUser();
 
-        return ($user?->is_active ?? false)
-            && $user->canCreatePurchaseRequests();
+        if (! $user || ! $user->is_active) {
+            return false;
+        }
+
+        if (static::isAdminUser($user)) {
+            return true;
+        }
+
+        return method_exists($user, 'canCreatePurchaseRequests')
+            ? $user->canCreatePurchaseRequests()
+            : false;
     }
 
     public static function canView(Model $record): bool
@@ -164,14 +266,7 @@ class PurchaseRequestResource extends Resource
             return false;
         }
 
-        if (
-            $user->isAdmin() ||
-            $user->isPurchasing() ||
-            $user->isAccounting() ||
-            $user->isGm() ||
-            $user->isOwner() ||
-            $user->canSeeAllPurchaseRequests()
-        ) {
+        if (static::canSeeAllUserPurchaseRequests($user)) {
             return true;
         }
 
@@ -186,11 +281,11 @@ class PurchaseRequestResource extends Resource
             return false;
         }
 
-        if ($user->isAdmin()) {
+        if (static::isAdminUser($user)) {
             return true;
         }
 
-        if ($user->isPurchasing()) {
+        if (static::isPurchasingUser($user)) {
             return in_array($record->status, [
                 'submitted',
                 'revision_to_purchasing_from_accounting',
@@ -198,7 +293,7 @@ class PurchaseRequestResource extends Resource
             ], true);
         }
 
-        if ($user->isAccounting()) {
+        if (static::isAccountingUser($user)) {
             return in_array($record->status, [
                 'submitted_to_accounting',
                 'on_hold_by_accounting',
@@ -206,14 +301,14 @@ class PurchaseRequestResource extends Resource
             ], true);
         }
 
-        if ($user->isGm()) {
+        if (static::isGmUser($user)) {
             return in_array($record->status, [
                 'submitted_to_gm',
                 'on_hold_by_gm',
             ], true);
         }
 
-        if ($user->isRequester()) {
+        if (static::isRequesterUser($user)) {
             if ($record->department_name !== $user->department_name) {
                 return false;
             }

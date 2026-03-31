@@ -3,9 +3,9 @@
 namespace App\Filament\Resources\PurchaseRequests\Pages;
 
 use App\Filament\Resources\PurchaseRequests\PurchaseRequestResource;
+use App\Mail\PurchaseRequestApprovedNotification;
 use App\Mail\PurchaseRequestReturnedToRequesterNotification;
 use App\Mail\PurchaseRequestSubmittedNotification;
-use App\Mail\PurchaseRequestApprovedNotification;
 use App\Models\Item;
 use App\Models\PurchaseRequest;
 use App\Models\User;
@@ -43,8 +43,10 @@ class EditPurchaseRequest extends EditRecord
                     }
 
                     $this->record->status = 'submitted';
-                    $this->record->current_status_at = now();
+                    $this->record->submitted_at = $this->record->submitted_at ?: now();
                     $this->record->save();
+
+                    $this->record->markActivity();
 
                     $this->record->logs()->create([
                         'user_id' => Auth::id(),
@@ -64,6 +66,8 @@ class EditPurchaseRequest extends EditRecord
                         'submitted_at',
                         'status',
                         'current_status_at',
+                        'last_activity_at',
+                        'last_reminder_sent_at',
                     ]);
                 }),
 
@@ -76,10 +80,11 @@ class EditPurchaseRequest extends EditRecord
                 ->modalDescription('This purchase request will be marked as cancelled and kept for history.')
                 ->visible(fn() => $this->canCancelRequest())
                 ->action(function () {
-                    $this->record->update([
-                        'status' => 'cancelled',
-                        'current_status_at' => now(),
-                    ]);
+                    $this->record->status = 'cancelled';
+                    $this->record->cancelled_at = now();
+                    $this->record->save();
+
+                    $this->record->markActivity();
 
                     $this->record->logs()->create([
                         'user_id' => Auth::id(),
@@ -102,10 +107,10 @@ class EditPurchaseRequest extends EditRecord
                 ->requiresConfirmation()
                 ->visible(fn() => $this->canPurchasingSubmitToAccounting())
                 ->action(function () {
-                    $this->record->update([
-                        'status' => 'submitted_to_accounting',
-                        'current_status_at' => now(),
-                    ]);
+                    $this->record->status = 'submitted_to_accounting';
+                    $this->record->save();
+
+                    $this->record->markActivity();
 
                     $this->record->logs()->create([
                         'user_id' => Auth::id(),
@@ -126,6 +131,8 @@ class EditPurchaseRequest extends EditRecord
                     $this->refreshFormData([
                         'status',
                         'current_status_at',
+                        'last_activity_at',
+                        'last_reminder_sent_at',
                     ]);
                 }),
 
@@ -141,10 +148,10 @@ class EditPurchaseRequest extends EditRecord
                             ->rows(4),
                     ])
                     ->action(function (array $data) {
-                        $this->record->update([
-                            'status' => 'revision_from_purchasing',
-                            'current_status_at' => now(),
-                        ]);
+                        $this->record->status = 'revision_from_purchasing';
+                        $this->record->save();
+
+                        $this->record->markActivity();
 
                         $this->record->logs()->create([
                             'user_id' => Auth::id(),
@@ -166,6 +173,8 @@ class EditPurchaseRequest extends EditRecord
                         $this->refreshFormData([
                             'status',
                             'current_status_at',
+                            'last_activity_at',
+                            'last_reminder_sent_at',
                         ]);
                     }),
             ])
@@ -182,10 +191,10 @@ class EditPurchaseRequest extends EditRecord
                 ->requiresConfirmation()
                 ->visible(fn() => $this->canAccountingSubmitToGm())
                 ->action(function () {
-                    $this->record->update([
-                        'status' => 'submitted_to_gm',
-                        'current_status_at' => now(),
-                    ]);
+                    $this->record->status = 'submitted_to_gm';
+                    $this->record->save();
+
+                    $this->record->markActivity();
 
                     $this->record->logs()->create([
                         'user_id' => Auth::id(),
@@ -206,6 +215,8 @@ class EditPurchaseRequest extends EditRecord
                     $this->refreshFormData([
                         'status',
                         'current_status_at',
+                        'last_activity_at',
+                        'last_reminder_sent_at',
                     ]);
                 }),
 
@@ -221,10 +232,10 @@ class EditPurchaseRequest extends EditRecord
                             ->rows(4),
                     ])
                     ->action(function (array $data) {
-                        $this->record->update([
-                            'status' => 'on_hold_by_accounting',
-                            'current_status_at' => now(),
-                        ]);
+                        $this->record->status = 'on_hold_by_accounting';
+                        $this->record->save();
+
+                        $this->record->markActivity();
 
                         $this->record->logs()->create([
                             'user_id' => Auth::id(),
@@ -240,6 +251,8 @@ class EditPurchaseRequest extends EditRecord
                         $this->refreshFormData([
                             'status',
                             'current_status_at',
+                            'last_activity_at',
+                            'last_reminder_sent_at',
                         ]);
                     }),
 
@@ -254,10 +267,10 @@ class EditPurchaseRequest extends EditRecord
                             ->rows(4),
                     ])
                     ->action(function (array $data) {
-                        $this->record->update([
-                            'status' => 'revision_to_purchasing_from_accounting',
-                            'current_status_at' => now(),
-                        ]);
+                        $this->record->status = 'revision_to_purchasing_from_accounting';
+                        $this->record->save();
+
+                        $this->record->markActivity();
 
                         $this->record->logs()->create([
                             'user_id' => Auth::id(),
@@ -278,6 +291,8 @@ class EditPurchaseRequest extends EditRecord
                         $this->refreshFormData([
                             'status',
                             'current_status_at',
+                            'last_activity_at',
+                            'last_reminder_sent_at',
                         ]);
                     }),
 
@@ -292,10 +307,10 @@ class EditPurchaseRequest extends EditRecord
                             ->rows(4),
                     ])
                     ->action(function (array $data) {
-                        $this->record->update([
-                            'status' => 'revision_to_requester_from_accounting',
-                            'current_status_at' => now(),
-                        ]);
+                        $this->record->status = 'revision_to_requester_from_accounting';
+                        $this->record->save();
+
+                        $this->record->markActivity();
 
                         $this->record->logs()->create([
                             'user_id' => Auth::id(),
@@ -317,6 +332,8 @@ class EditPurchaseRequest extends EditRecord
                         $this->refreshFormData([
                             'status',
                             'current_status_at',
+                            'last_activity_at',
+                            'last_reminder_sent_at',
                         ]);
                     }),
             ])
@@ -333,10 +350,11 @@ class EditPurchaseRequest extends EditRecord
                 ->requiresConfirmation()
                 ->visible(fn() => $this->canGmApprove())
                 ->action(function () {
-                    $this->record->update([
-                        'status' => 'approved',
-                        'current_status_at' => now(),
-                    ]);
+                    $this->record->status = 'approved';
+                    $this->record->approved_at = now();
+                    $this->record->save();
+
+                    $this->record->markActivity();
 
                     $this->record->logs()->create([
                         'user_id' => Auth::id(),
@@ -353,7 +371,10 @@ class EditPurchaseRequest extends EditRecord
 
                     $this->refreshFormData([
                         'status',
+                        'approved_at',
                         'current_status_at',
+                        'last_activity_at',
+                        'last_reminder_sent_at',
                     ]);
                 }),
 
@@ -369,10 +390,10 @@ class EditPurchaseRequest extends EditRecord
                             ->rows(4),
                     ])
                     ->action(function (array $data) {
-                        $this->record->update([
-                            'status' => 'on_hold_by_gm',
-                            'current_status_at' => now(),
-                        ]);
+                        $this->record->status = 'on_hold_by_gm';
+                        $this->record->save();
+
+                        $this->record->markActivity();
 
                         $this->record->logs()->create([
                             'user_id' => Auth::id(),
@@ -388,6 +409,8 @@ class EditPurchaseRequest extends EditRecord
                         $this->refreshFormData([
                             'status',
                             'current_status_at',
+                            'last_activity_at',
+                            'last_reminder_sent_at',
                         ]);
                     }),
 
@@ -402,10 +425,10 @@ class EditPurchaseRequest extends EditRecord
                             ->rows(4),
                     ])
                     ->action(function (array $data) {
-                        $this->record->update([
-                            'status' => 'revision_to_accounting_from_gm',
-                            'current_status_at' => now(),
-                        ]);
+                        $this->record->status = 'revision_to_accounting_from_gm';
+                        $this->record->save();
+
+                        $this->record->markActivity();
 
                         $this->record->logs()->create([
                             'user_id' => Auth::id(),
@@ -426,6 +449,8 @@ class EditPurchaseRequest extends EditRecord
                         $this->refreshFormData([
                             'status',
                             'current_status_at',
+                            'last_activity_at',
+                            'last_reminder_sent_at',
                         ]);
                     }),
 
@@ -440,10 +465,10 @@ class EditPurchaseRequest extends EditRecord
                             ->rows(4),
                     ])
                     ->action(function (array $data) {
-                        $this->record->update([
-                            'status' => 'revision_to_purchasing_from_gm',
-                            'current_status_at' => now(),
-                        ]);
+                        $this->record->status = 'revision_to_purchasing_from_gm';
+                        $this->record->save();
+
+                        $this->record->markActivity();
 
                         $this->record->logs()->create([
                             'user_id' => Auth::id(),
@@ -464,6 +489,8 @@ class EditPurchaseRequest extends EditRecord
                         $this->refreshFormData([
                             'status',
                             'current_status_at',
+                            'last_activity_at',
+                            'last_reminder_sent_at',
                         ]);
                     }),
 
@@ -478,10 +505,10 @@ class EditPurchaseRequest extends EditRecord
                             ->rows(4),
                     ])
                     ->action(function (array $data) {
-                        $this->record->update([
-                            'status' => 'revision_to_requester_from_gm',
-                            'current_status_at' => now(),
-                        ]);
+                        $this->record->status = 'revision_to_requester_from_gm';
+                        $this->record->save();
+
+                        $this->record->markActivity();
 
                         $this->record->logs()->create([
                             'user_id' => Auth::id(),
@@ -503,6 +530,8 @@ class EditPurchaseRequest extends EditRecord
                         $this->refreshFormData([
                             'status',
                             'current_status_at',
+                            'last_activity_at',
+                            'last_reminder_sent_at',
                         ]);
                     }),
             ])
@@ -516,8 +545,16 @@ class EditPurchaseRequest extends EditRecord
 
     protected function afterSave(): void
     {
+        $this->record->touchActivityOnly();
+
         $this->syncItemsToMasterCatalog();
         $this->syncVendorsToMasterCatalog();
+
+        $this->refreshFormData([
+            'current_status_at',
+            'last_activity_at',
+            'last_reminder_sent_at',
+        ]);
     }
 
     protected function syncItemsToMasterCatalog(): void
