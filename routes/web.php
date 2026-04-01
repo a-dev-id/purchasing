@@ -13,3 +13,10 @@ Route::get(
     '/cron/purchase-requests/reminders/{token}',
     [PurchaseRequestReminderController::class, 'run']
 )->name('cron.purchase-requests.reminders');
+
+use App\Http\Controllers\PurchaseRequestViewController;
+
+Route::middleware(['auth'])->group(function () {
+    Route::get('/purchase-requests/{purchaseRequest}/view-form', [PurchaseRequestViewController::class, 'show'])
+        ->name('purchase-requests.view-form');
+});

@@ -162,6 +162,12 @@ class PurchaseRequestsTable
             ])
             ->defaultSort('id', 'desc')
             ->recordActions([
+                Action::make('viewForm')
+                    ->label('View PR Form')
+                    ->icon('heroicon-o-document-text')
+                    ->url(fn(PurchaseRequest $record): string => route('purchase-requests.view-form', $record))
+                    ->openUrlInNewTab(),
+
                 Action::make('submitRequest')
                     ->label('Submit')
                     ->icon('heroicon-o-paper-airplane')
