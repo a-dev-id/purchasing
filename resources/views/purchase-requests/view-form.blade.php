@@ -9,9 +9,9 @@ $offers = $purchaseRequest->vendorOffers
 ->take(3)
 ->values();
 
-$bid1 = $offers->get(0);
-$bid2 = $offers->get(1);
-$bid3 = $offers->get(2);
+$bid1 = $offers->firstWhere('offer_rank', 1) ?? $offers->get(0);
+$bid2 = $offers->firstWhere('offer_rank', 2) ?? $offers->get(1);
+$bid3 = $offers->firstWhere('offer_rank', 3) ?? $offers->get(2);
 
 $selectedOffer = $purchaseRequest->vendorOffers->firstWhere('is_selected_by_accounting', true);
 
@@ -508,22 +508,29 @@ return [
                     $lineTotal = ($qty !== null && $unitPrice !== null) ? ((float) $qty * (float) $unitPrice) : null;
 
                     $vendorMode = $purchaseRequest->vendor_comparison_mode ?? 'item';
+                    $isPrVendorMode = $vendorMode === 'pr';
+                    $isFirstRow = $i === 0;
 
-                    if ($item && $vendorMode === 'item') {
-                    $rowOffers = $item->vendorOffers
+                    if ($item && ! $isPrVendorMode) {
+                    $itemOffers = $item->vendorOffers
                     ->sortBy([
                     ['offer_rank', 'asc'],
                     ['id', 'asc'],
                     ])
-                    ->take(3)
                     ->values();
-                    } else {
-                    $rowOffers = collect([$bid1, $bid2, $bid3])->filter()->values();
-                    }
 
-                    $rowBid1 = $rowOffers->get(0);
-                    $rowBid2 = $rowOffers->get(1);
-                    $rowBid3 = $rowOffers->get(2);
+                    $rowBid1 = $itemOffers->firstWhere('offer_rank', 1);
+                    $rowBid2 = $itemOffers->firstWhere('offer_rank', 2);
+                    $rowBid3 = $itemOffers->firstWhere('offer_rank', 3);
+
+                    $rowBid1 = $rowBid1 ?? $itemOffers->get(0);
+                    $rowBid2 = $rowBid2 ?? $itemOffers->get(1);
+                    $rowBid3 = $rowBid3 ?? $itemOffers->get(2);
+                    } else {
+                    $rowBid1 = $bid1;
+                    $rowBid2 = $bid2;
+                    $rowBid3 = $bid3;
+                    }
                     @endphp
 
                     <tr>
@@ -547,6 +554,48 @@ return [
                             @endif
                         </td>
 
+                        @if ($isPrVendorMode)
+                        @if ($isFirstRow)
+                        <td class="text-center" rowspan="{{ $rowsToShow }}">
+                            @if ($rowBid1)
+                            <div style="font-weight: 700;">
+                                {{ $rowBid1->vendor?->name ?? $rowBid1->vendor_name ?? '-' }}
+                            </div>
+                            <div style="margin-top: 4px; font-size: 11px;">
+                                {{ $formatMoney($rowBid1->offer_total, $rowBid1->currency ?? 'IDR') }}
+                            </div>
+                            @else
+                            -
+                            @endif
+                        </td>
+
+                        <td class="text-center" rowspan="{{ $rowsToShow }}">
+                            @if ($rowBid2)
+                            <div style="font-weight: 700;">
+                                {{ $rowBid2->vendor?->name ?? $rowBid2->vendor_name ?? '-' }}
+                            </div>
+                            <div style="margin-top: 4px; font-size: 11px;">
+                                {{ $formatMoney($rowBid2->offer_total, $rowBid2->currency ?? 'IDR') }}
+                            </div>
+                            @else
+                            -
+                            @endif
+                        </td>
+
+                        <td class="text-center" rowspan="{{ $rowsToShow }}">
+                            @if ($rowBid3)
+                            <div style="font-weight: 700;">
+                                {{ $rowBid3->vendor?->name ?? $rowBid3->vendor_name ?? '-' }}
+                            </div>
+                            <div style="margin-top: 4px; font-size: 11px;">
+                                {{ $formatMoney($rowBid3->offer_total, $rowBid3->currency ?? 'IDR') }}
+                            </div>
+                            @else
+                            -
+                            @endif
+                        </td>
+                        @endif
+                        @else
                         <td class="text-center">
                             @if ($rowBid1)
                             <div style="font-weight: 700;">
@@ -585,6 +634,7 @@ return [
                             -
                             @endif
                         </td>
+                        @endif
 
                         <td class="text-right">{{ $item ? $formatMoney($lineTotal) : '-' }}</td>
                     </tr>

@@ -321,8 +321,8 @@ class PurchaseRequestForm
                         Select::make('vendor_comparison_mode')
                             ->label('Vendor Comparison Mode')
                             ->options([
-                                'item' => '1 Item, 3 Vendors',
-                                'pr' => '1 PR, 3 Vendors',
+                                'item' => 'Mix item(s)',
+                                'pr' => 'Specific item(s)',
                             ])
                             ->default('item')
                             ->required()
