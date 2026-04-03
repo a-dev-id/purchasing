@@ -150,13 +150,64 @@ class PurchaseRequestResource extends Resource
 
     protected static function canSeeAllUserPurchaseRequests(?User $user): bool
     {
-        if (static::isAdminUser($user) || static::isOwnerUser($user)) {
-            return true;
-        }
+        return static::isAdminUser($user) || static::isOwnerUser($user);
+    }
 
-        return $user instanceof User
-            && method_exists($user, 'canSeeAllPurchaseRequests')
-            && $user->canSeeAllPurchaseRequests();
+    protected static function purchasingVisibleStatuses(): array
+    {
+        return [
+            'submitted',
+            'revision_from_purchasing',
+            'submitted_to_accounting',
+            'revision_from_accounting',
+            'revision_to_purchasing_from_accounting',
+            'revision_to_requester_from_accounting',
+            'on_hold_by_accounting',
+            'submitted_to_gm',
+            'revision_from_gm',
+            'revision_to_purchasing_from_gm',
+            'revision_to_accounting_from_gm',
+            'revision_to_requester_from_gm',
+            'on_hold_by_gm',
+            'approved',
+            'rejected',
+            'cancelled',
+        ];
+    }
+
+    protected static function accountingVisibleStatuses(): array
+    {
+        return [
+            'submitted_to_accounting',
+            'on_hold_by_accounting',
+            'revision_from_accounting',
+            'revision_to_purchasing_from_accounting',
+            'revision_to_requester_from_accounting',
+            'submitted_to_gm',
+            'revision_from_gm',
+            'revision_to_purchasing_from_gm',
+            'revision_to_accounting_from_gm',
+            'revision_to_requester_from_gm',
+            'on_hold_by_gm',
+            'approved',
+            'rejected',
+            'cancelled',
+        ];
+    }
+
+    protected static function gmVisibleStatuses(): array
+    {
+        return [
+            'submitted_to_gm',
+            'on_hold_by_gm',
+            'revision_from_gm',
+            'revision_to_purchasing_from_gm',
+            'revision_to_accounting_from_gm',
+            'revision_to_requester_from_gm',
+            'approved',
+            'rejected',
+            'cancelled',
+        ];
     }
 
     public static function getEloquentQuery(): Builder
@@ -178,57 +229,15 @@ class PurchaseRequestResource extends Resource
         }
 
         if (static::isPurchasingUser($user)) {
-            return $query->whereIn('status', [
-                'submitted',
-                'revision_from_purchasing',
-                'submitted_to_accounting',
-                'revision_from_accounting',
-                'revision_to_purchasing_from_accounting',
-                'revision_to_requester_from_accounting',
-                'on_hold_by_accounting',
-                'submitted_to_gm',
-                'revision_from_gm',
-                'revision_to_purchasing_from_gm',
-                'revision_to_accounting_from_gm',
-                'revision_to_requester_from_gm',
-                'on_hold_by_gm',
-                'approved',
-                'rejected',
-                'cancelled',
-            ]);
+            return $query->whereIn('status', static::purchasingVisibleStatuses());
         }
 
         if (static::isAccountingUser($user)) {
-            return $query->whereIn('status', [
-                'submitted_to_accounting',
-                'on_hold_by_accounting',
-                'revision_from_accounting',
-                'revision_to_purchasing_from_accounting',
-                'revision_to_requester_from_accounting',
-                'submitted_to_gm',
-                'revision_from_gm',
-                'revision_to_purchasing_from_gm',
-                'revision_to_accounting_from_gm',
-                'revision_to_requester_from_gm',
-                'on_hold_by_gm',
-                'approved',
-                'rejected',
-                'cancelled',
-            ]);
+            return $query->whereIn('status', static::accountingVisibleStatuses());
         }
 
         if (static::isGmUser($user)) {
-            return $query->whereIn('status', [
-                'submitted_to_gm',
-                'on_hold_by_gm',
-                'revision_from_gm',
-                'revision_to_purchasing_from_gm',
-                'revision_to_accounting_from_gm',
-                'revision_to_requester_from_gm',
-                'approved',
-                'rejected',
-                'cancelled',
-            ]);
+            return $query->whereIn('status', static::gmVisibleStatuses());
         }
 
         return $query->whereRaw('1 = 0');
@@ -270,7 +279,23 @@ class PurchaseRequestResource extends Resource
             return true;
         }
 
-        return $record->department_name === $user->department_name;
+        if (static::isRequesterUser($user)) {
+            return $record->department_name === $user->department_name;
+        }
+
+        if (static::isPurchasingUser($user)) {
+            return in_array($record->status, static::purchasingVisibleStatuses(), true);
+        }
+
+        if (static::isAccountingUser($user)) {
+            return in_array($record->status, static::accountingVisibleStatuses(), true);
+        }
+
+        if (static::isGmUser($user)) {
+            return in_array($record->status, static::gmVisibleStatuses(), true);
+        }
+
+        return false;
     }
 
     public static function canEdit(Model $record): bool

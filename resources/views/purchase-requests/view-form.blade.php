@@ -1,4 +1,6 @@
 @php
+use Illuminate\Support\Facades\Storage;
+
 $offers = $purchaseRequest->vendorOffers
 ->sortBy([
 ['offer_rank', 'asc'],
@@ -36,11 +38,15 @@ $text = str($html)
 return trim(html_entity_decode(strip_tags($text)));
 };
 
-$submittedDate = $purchaseRequest->submitted_at
+$dateNeeded = filled($purchaseRequest->date_needed)
+? \Carbon\Carbon::parse($purchaseRequest->date_needed)->format('d M Y')
+: '-';
+
+$submittedDate = filled($purchaseRequest->submitted_at)
 ? $purchaseRequest->submitted_at->timezone('Asia/Makassar')->format('d M Y H:i')
 : '-';
 
-$rowsToShow = max($purchaseRequest->items->count(), 8);
+$rowsToShow = max($purchaseRequest->items->count(), 1);
 
 $itemsTotal = $purchaseRequest->items->sum(function ($item) {
 $qty = (float) ($item->qty ?? $item->quantity ?? 0);
@@ -54,6 +60,26 @@ $displayTotalAmount = $selectedOffer?->offer_total;
 if (($displayTotalAmount === null || $displayTotalAmount === '') && $itemsTotal > 0) {
 $displayTotalAmount = $itemsTotal;
 }
+
+$itemsWithPhotos = $purchaseRequest->items
+->map(function ($item) {
+$photos = collect($item->photos ?? [])
+->filter(fn ($photo) => filled($photo->file_path))
+->map(function ($photo) {
+return [
+'name' => $photo->file_name ?: 'Photo',
+'url' => Storage::disk('public')->url($photo->file_path),
+];
+})
+->values();
+
+return [
+'item_name' => $item->item?->name ?? $item->item_name ?? 'Item',
+'photos' => $photos,
+];
+})
+->filter(fn ($item) => $item['photos']->isNotEmpty())
+->values();
 @endphp
 
 <!DOCTYPE html>
@@ -63,6 +89,7 @@ $displayTotalAmount = $itemsTotal;
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Purchase Request {{ $purchaseRequest->request_number ?? $purchaseRequest->id }}</title>
+
     <style>
         * {
             box-sizing: border-box;
@@ -70,23 +97,15 @@ $displayTotalAmount = $itemsTotal;
 
         body {
             margin: 0;
+            padding: 20px;
             background: #f3f4f6;
             font-family: Arial, Helvetica, sans-serif;
             color: #111827;
-            padding: 24px;
-        }
-
-        .page {
-            max-width: 1400px;
-            margin: 0 auto;
-            background: #ffffff;
-            padding: 24px;
-            border: 1px solid #d1d5db;
         }
 
         .print-actions {
             max-width: 1400px;
-            margin: 0 auto 16px auto;
+            margin: 0 auto 14px auto;
             display: flex;
             justify-content: flex-end;
             gap: 8px;
@@ -94,12 +113,13 @@ $displayTotalAmount = $itemsTotal;
 
         .btn {
             display: inline-block;
-            padding: 8px 14px;
+            padding: 8px 16px;
             border: 1px solid #111827;
+            background: #fff;
             color: #111827;
             text-decoration: none;
             font-size: 14px;
-            background: #fff;
+            line-height: 1.2;
         }
 
         .btn:hover {
@@ -107,16 +127,24 @@ $displayTotalAmount = $itemsTotal;
             color: #fff;
         }
 
+        .page {
+            max-width: 1400px;
+            margin: 0 auto;
+            background: #fff;
+            border: 1px solid #d1d5db;
+            padding: 24px;
+        }
+
         .top-grid {
             display: grid;
-            grid-template-columns: 1.1fr 1.15fr 1fr;
+            grid-template-columns: 1.08fr 1.12fr 1fr;
             border: 1px solid #111827;
             border-bottom: 0;
         }
 
         .box {
             border-right: 1px solid #111827;
-            min-height: 136px;
+            min-height: 150px;
         }
 
         .box:last-child {
@@ -125,15 +153,16 @@ $displayTotalAmount = $itemsTotal;
 
         .box table {
             width: 100%;
-            border-collapse: collapse;
             height: 100%;
+            border-collapse: collapse;
         }
 
         .box td {
             border-bottom: 1px solid #111827;
-            padding: 6px 10px;
+            padding: 8px 10px;
             vertical-align: top;
             font-size: 12px;
+            line-height: 1.2;
         }
 
         .box tr:last-child td {
@@ -143,7 +172,8 @@ $displayTotalAmount = $itemsTotal;
         .label {
             font-weight: 700;
             text-transform: uppercase;
-            letter-spacing: 0.3px;
+            letter-spacing: 0.2px;
+            margin-bottom: 2px;
         }
 
         .center-box {
@@ -155,9 +185,16 @@ $displayTotalAmount = $itemsTotal;
         }
 
         .title {
-            font-size: 26px;
+            font-size: 25px;
             font-weight: 700;
-            letter-spacing: 0.5px;
+            letter-spacing: 0.4px;
+        }
+
+        .req-no {
+            font-size: 18px;
+            font-weight: 700;
+            text-align: right;
+            margin-top: 2px;
         }
 
         .main-table {
@@ -170,7 +207,7 @@ $displayTotalAmount = $itemsTotal;
         .main-table th,
         .main-table td {
             border: 1px solid #111827;
-            padding: 6px 8px;
+            padding: 5px 8px;
             font-size: 12px;
             vertical-align: top;
         }
@@ -179,7 +216,11 @@ $displayTotalAmount = $itemsTotal;
             text-transform: uppercase;
             text-align: center;
             font-weight: 700;
-            line-height: 1.15;
+            line-height: 1.1;
+        }
+
+        .main-table tbody tr {
+            height: 27px;
         }
 
         .text-center {
@@ -198,7 +239,7 @@ $displayTotalAmount = $itemsTotal;
         .item-notes,
         .remarks-content {
             font-size: 12px;
-            line-height: 1.45;
+            line-height: 1.4;
             white-space: pre-line;
             word-break: break-word;
         }
@@ -212,33 +253,36 @@ $displayTotalAmount = $itemsTotal;
         }
 
         .remarks-left {
-            border-right: 1px solid #111827;
             min-height: 180px;
+            border-right: 1px solid #111827;
         }
 
-        .remarks-left .row-title {
+        .remarks-left .row-title,
+        .remarks-right .row-title,
+        .photos-section .row-title {
             border-bottom: 1px solid #111827;
             padding: 8px 10px;
+            font-size: 12px;
             font-weight: 700;
             text-transform: uppercase;
         }
 
         .remarks-left .row-body {
-            padding: 10px;
             min-height: 140px;
+            padding: 10px;
         }
 
         .remarks-right table {
             width: 100%;
-            border-collapse: collapse;
             height: 100%;
+            border-collapse: collapse;
         }
 
         .remarks-right td {
-            border-bottom: 1px solid #111827;
             padding: 8px 10px;
             font-size: 12px;
             vertical-align: top;
+            border-bottom: 1px solid #111827;
         }
 
         .remarks-right tr:last-child td {
@@ -249,6 +293,65 @@ $displayTotalAmount = $itemsTotal;
             width: 48%;
             font-weight: 700;
             text-transform: uppercase;
+        }
+
+        .photos-section {
+            border-left: 1px solid #111827;
+            border-right: 1px solid #111827;
+            border-bottom: 1px solid #111827;
+        }
+
+        .photos-body {
+            padding: 12px;
+        }
+
+        .photo-item+.photo-item {
+            margin-top: 18px;
+            padding-top: 18px;
+            border-top: 1px dashed #9ca3af;
+        }
+
+        .photo-item-title {
+            font-size: 13px;
+            font-weight: 700;
+            margin-bottom: 10px;
+        }
+
+        .photo-grid {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 12px;
+        }
+
+        .photo-card {
+            width: 180px;
+        }
+
+        .photo-card a {
+            display: block;
+            text-decoration: none;
+            color: inherit;
+        }
+
+        .photo-card img {
+            width: 100%;
+            height: 140px;
+            object-fit: cover;
+            border: 1px solid #d1d5db;
+            display: block;
+            background: #fff;
+        }
+
+        .photo-caption {
+            margin-top: 6px;
+            font-size: 11px;
+            line-height: 1.35;
+            word-break: break-word;
+        }
+
+        .empty-photos {
+            font-size: 12px;
+            color: #6b7280;
         }
 
         .signatures {
@@ -273,9 +376,9 @@ $displayTotalAmount = $itemsTotal;
 
         .sign-title {
             padding: 8px 10px;
+            font-size: 12px;
             font-weight: 700;
             text-transform: uppercase;
-            font-size: 12px;
         }
 
         .sign-name {
@@ -287,9 +390,14 @@ $displayTotalAmount = $itemsTotal;
         .sign-date {
             padding: 8px 10px;
             border-top: 1px solid #111827;
+            font-size: 12px;
             font-weight: 700;
             text-transform: uppercase;
-            font-size: 12px;
+        }
+
+        @page {
+            size: A4 landscape;
+            margin: 10mm;
         }
 
         @media print {
@@ -306,6 +414,10 @@ $displayTotalAmount = $itemsTotal;
                 border: 0;
                 max-width: 100%;
                 padding: 0;
+            }
+
+            .photos-section {
+                display: none;
             }
         }
 
@@ -337,7 +449,7 @@ $displayTotalAmount = $itemsTotal;
                     <tr>
                         <td>
                             <div class="label">Date Needed</div>
-                            <div>{{ $submittedDate }}</div>
+                            <div>{{ $dateNeeded }}</div>
                         </td>
                     </tr>
                 </table>
@@ -351,16 +463,16 @@ $displayTotalAmount = $itemsTotal;
                 <table>
                     <tr>
                         <td>
-                            <div class="label">Supplier</div>
-                            <div>{{ $selectedOffer?->vendor?->name ?? $selectedOffer?->vendor_name ?? '-' }}</div>
-                        </td>
-                    </tr>
-                    <tr>
-                        <td>
                             <div class="label">Purchase Requisition Number</div>
                             <div style="font-size: 18px; font-weight: 700; text-align: right;">
                                 {{ $purchaseRequest->request_number ?? str_pad((string) $purchaseRequest->id, 4, '0', STR_PAD_LEFT) }}
                             </div>
+                        </td>
+                    </tr>
+                    <tr>
+                        <td>
+                            <div class="label">Submitted Date</div>
+                            <div>{{ $submittedDate }}</div>
                         </td>
                     </tr>
                 </table>
@@ -390,9 +502,28 @@ $displayTotalAmount = $itemsTotal;
             </thead>
             <tbody>
                 @for ($i = 0; $i < $rowsToShow; $i++) @php $item=$purchaseRequest->items->get($i);
+
                     $qty = $item->qty ?? $item->quantity ?? null;
                     $unitPrice = $item->unit_price ?? $item->price ?? null;
                     $lineTotal = ($qty !== null && $unitPrice !== null) ? ((float) $qty * (float) $unitPrice) : null;
+
+                    $vendorMode = $purchaseRequest->vendor_comparison_mode ?? 'item';
+
+                    if ($item && $vendorMode === 'item') {
+                    $rowOffers = $item->vendorOffers
+                    ->sortBy([
+                    ['offer_rank', 'asc'],
+                    ['id', 'asc'],
+                    ])
+                    ->take(3)
+                    ->values();
+                    } else {
+                    $rowOffers = collect([$bid1, $bid2, $bid3])->filter()->values();
+                    }
+
+                    $rowBid1 = $rowOffers->get(0);
+                    $rowBid2 = $rowOffers->get(1);
+                    $rowBid3 = $rowOffers->get(2);
                     @endphp
 
                     <tr>
@@ -408,34 +539,53 @@ $displayTotalAmount = $itemsTotal;
                             <div class="item-notes">{{ $cleanRichText($item->specification) }}</div>
                             @endif
 
-                            @if (!empty($item->notes))
-                            <div class="item-notes">{{ $cleanRichText($item->notes) }}</div>
+                            @if (!empty($item->purpose))
+                            <div class="item-notes" style="margin-top: 8px;">{{ $cleanRichText($item->purpose) }}</div>
                             @endif
                             @else
                             &nbsp;
                             @endif
                         </td>
+
                         <td class="text-center">
-                            @if ($i === 0)
-                            {{ $bid1?->vendor?->name ?? $bid1?->vendor_name ?? '-' }}
+                            @if ($rowBid1)
+                            <div style="font-weight: 700;">
+                                {{ $rowBid1->vendor?->name ?? $rowBid1->vendor_name ?? '-' }}
+                            </div>
+                            <div style="margin-top: 4px; font-size: 11px;">
+                                {{ $formatMoney($rowBid1->offer_total, $rowBid1->currency ?? 'IDR') }}
+                            </div>
                             @else
-                            &nbsp;
+                            -
                             @endif
                         </td>
+
                         <td class="text-center">
-                            @if ($i === 0)
-                            {{ $bid2?->vendor?->name ?? $bid2?->vendor_name ?? '-' }}
+                            @if ($rowBid2)
+                            <div style="font-weight: 700;">
+                                {{ $rowBid2->vendor?->name ?? $rowBid2->vendor_name ?? '-' }}
+                            </div>
+                            <div style="margin-top: 4px; font-size: 11px;">
+                                {{ $formatMoney($rowBid2->offer_total, $rowBid2->currency ?? 'IDR') }}
+                            </div>
                             @else
-                            &nbsp;
+                            -
                             @endif
                         </td>
+
                         <td class="text-center">
-                            @if ($i === 0)
-                            {{ $bid3?->vendor?->name ?? $bid3?->vendor_name ?? '-' }}
+                            @if ($rowBid3)
+                            <div style="font-weight: 700;">
+                                {{ $rowBid3->vendor?->name ?? $rowBid3->vendor_name ?? '-' }}
+                            </div>
+                            <div style="margin-top: 4px; font-size: 11px;">
+                                {{ $formatMoney($rowBid3->offer_total, $rowBid3->currency ?? 'IDR') }}
+                            </div>
                             @else
-                            &nbsp;
+                            -
                             @endif
                         </td>
+
                         <td class="text-right">{{ $item ? $formatMoney($lineTotal) : '-' }}</td>
                     </tr>
                     @endfor
@@ -457,6 +607,33 @@ $displayTotalAmount = $itemsTotal;
                         <td>{{ $formatMoney($displayTotalAmount, $selectedOffer?->currency ?? 'IDR') }}</td>
                     </tr>
                 </table>
+            </div>
+        </div>
+
+        <div class="photos-section">
+            <div class="row-title">Item Photos</div>
+
+            <div class="photos-body">
+                @if ($itemsWithPhotos->isEmpty())
+                <div class="empty-photos">No item photos uploaded.</div>
+                @else
+                @foreach ($itemsWithPhotos as $photoItem)
+                <div class="photo-item">
+                    <div class="photo-item-title">{{ $photoItem['item_name'] }}</div>
+
+                    <div class="photo-grid">
+                        @foreach ($photoItem['photos'] as $photo)
+                        <div class="photo-card">
+                            <a href="{{ $photo['url'] }}" target="_blank">
+                                <img src="{{ $photo['url'] }}" alt="{{ $photo['name'] }}">
+                            </a>
+                            <div class="photo-caption">{{ $photo['name'] }}</div>
+                        </div>
+                        @endforeach
+                    </div>
+                </div>
+                @endforeach
+                @endif
             </div>
         </div>
 

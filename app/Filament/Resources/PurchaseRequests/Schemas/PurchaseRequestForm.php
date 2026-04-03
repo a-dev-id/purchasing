@@ -14,6 +14,7 @@ use Filament\Forms\Components\Select;
 use Filament\Forms\Components\Textarea;
 use Filament\Forms\Components\TextInput;
 use Filament\Schemas\Components\Section;
+use Filament\Schemas\Components\Utilities\Get;
 use Filament\Schemas\Schema;
 use Illuminate\Support\Facades\Auth;
 
@@ -159,6 +160,109 @@ class PurchaseRequestForm
         return false;
     }
 
+    protected static function vendorOfferSchema(): array
+    {
+        return [
+            Select::make('vendor_id')
+                ->label('Select Existing Vendor')
+                ->searchable()
+                ->preload()
+                ->live()
+                ->options(fn() => Vendor::query()
+                    ->where('is_active', true)
+                    ->orderBy('name')
+                    ->limit(50)
+                    ->pluck('name', 'id')
+                    ->toArray())
+                ->getSearchResultsUsing(fn(string $search): array => Vendor::query()
+                    ->where('is_active', true)
+                    ->where(function ($query) use ($search) {
+                        $query->where('name', 'like', "%{$search}%")
+                            ->orWhere('category', 'like', "%{$search}%")
+                            ->orWhere('contact_person', 'like', "%{$search}%")
+                            ->orWhere('phone', 'like', "%{$search}%")
+                            ->orWhere('email', 'like', "%{$search}%");
+                    })
+                    ->orderBy('name')
+                    ->limit(20)
+                    ->pluck('name', 'id')
+                    ->toArray())
+                ->getOptionLabelUsing(fn($value): ?string => Vendor::find($value)?->name)
+                ->afterStateUpdated(function ($state, callable $set) {
+                    if (blank($state)) {
+                        return;
+                    }
+
+                    $vendor = Vendor::find($state);
+
+                    if (! $vendor) {
+                        return;
+                    }
+
+                    $set('vendor_name', $vendor->name);
+                    $set('contact_person', $vendor->contact_person);
+                    $set('phone', $vendor->phone);
+                    $set('email', $vendor->email);
+                })
+                ->columnSpanFull(),
+
+            TextInput::make('vendor_name')
+                ->label('Vendor Name')
+                ->required()
+                ->maxLength(191),
+
+            TextInput::make('contact_person')
+                ->label('Contact Person')
+                ->maxLength(191),
+
+            TextInput::make('phone')
+                ->label('Phone')
+                ->tel()
+                ->maxLength(191),
+
+            TextInput::make('email')
+                ->label('Email')
+                ->email()
+                ->maxLength(191),
+
+            TextInput::make('offer_total')
+                ->label('Offer Total')
+                ->numeric()
+                ->prefix('IDR'),
+
+            TextInput::make('currency')
+                ->label('Currency')
+                ->default('IDR')
+                ->required()
+                ->maxLength(10),
+
+            TextInput::make('lead_time_days')
+                ->label('Lead Time (Days)')
+                ->numeric()
+                ->minValue(0),
+
+            TextInput::make('offer_rank')
+                ->label('Offer Rank')
+                ->numeric()
+                ->minValue(1)
+                ->maxValue(3),
+
+            Textarea::make('offer_notes')
+                ->label('Offer Notes')
+                ->rows(3)
+                ->columnSpanFull(),
+
+            FileUpload::make('quotation_file')
+                ->label('Quotation File')
+                ->disk('public')
+                ->directory('purchase-request-quotations')
+                ->visibility('public')
+                ->downloadable()
+                ->openable()
+                ->columnSpanFull(),
+        ];
+    }
+
     public static function configure(Schema $schema): Schema
     {
         return $schema
@@ -206,6 +310,30 @@ class PurchaseRequestForm
                             ])
                             ->default('normal')
                             ->required(),
+
+                        DatePicker::make('date_needed')
+                            ->label('Date Needed')
+                            ->native(false)
+                            ->displayFormat('d M Y')
+                            ->required()
+                            ->columnSpanFull(),
+
+                        Select::make('vendor_comparison_mode')
+                            ->label('Vendor Comparison Mode')
+                            ->options([
+                                'item' => '1 Item, 3 Vendors',
+                                'pr' => '1 PR, 3 Vendors',
+                            ])
+                            ->default('item')
+                            ->required()
+                            ->native(false)
+                            ->live()
+                            ->afterStateHydrated(function ($state, callable $set) {
+                                if (blank($state)) {
+                                    $set('vendor_comparison_mode', 'item');
+                                }
+                            })
+                            ->columnSpanFull(),
 
                         RichEditor::make('request_notes')
                             ->label('Request Description')
@@ -296,9 +424,6 @@ class PurchaseRequestForm
                                     ->placeholder('pcs, box, liter, set')
                                     ->maxLength(100),
 
-                                DatePicker::make('needed_by')
-                                    ->label('Needed By'),
-
                                 RichEditor::make('purpose')
                                     ->label('Purpose')
                                     ->toolbarButtons([
@@ -331,12 +456,33 @@ class PurchaseRequestForm
                                     ])
                                     ->columns(2)
                                     ->columnSpanFull(),
+
+                                Repeater::make('vendorOffers')
+                                    ->relationship('vendorOffers')
+                                    ->label('Item Vendor Offers')
+                                    ->defaultItems(0)
+                                    ->addActionLabel('Add Vendor Offer')
+                                    ->maxItems(3)
+                                    ->reorderable()
+                                    ->collapsible()
+                                    ->cloneable()
+                                    ->schema(static::vendorOfferSchema())
+                                    ->columns(2)
+                                    ->columnSpanFull()
+                                    ->visible(function (Get $get, \Livewire\Component $livewire): bool {
+                                        $purchaseRequest = method_exists($livewire, 'getRecord')
+                                            ? $livewire->getRecord()
+                                            : null;
+
+                                        return (($get('../../vendor_comparison_mode') ?? $purchaseRequest?->vendor_comparison_mode ?? 'pr') === 'item')
+                                            && static::canShowVendorOffers($purchaseRequest);
+                                    }),
                             ])
                             ->columns(2)
                             ->columnSpanFull(),
                     ]),
 
-                Section::make('Vendor Offers')
+                Section::make('PR Vendor Offers')
                     ->schema([
                         Repeater::make('vendorOffers')
                             ->relationship('vendorOffers')
@@ -347,109 +493,13 @@ class PurchaseRequestForm
                             ->reorderable()
                             ->collapsible()
                             ->cloneable()
-                            ->schema([
-                                Select::make('vendor_id')
-                                    ->label('Select Existing Vendor')
-                                    ->searchable()
-                                    ->preload()
-                                    ->live()
-                                    ->options(fn() => Vendor::query()
-                                        ->where('is_active', true)
-                                        ->orderBy('name')
-                                        ->limit(50)
-                                        ->pluck('name', 'id')
-                                        ->toArray())
-                                    ->getSearchResultsUsing(fn(string $search): array => Vendor::query()
-                                        ->where('is_active', true)
-                                        ->where(function ($query) use ($search) {
-                                            $query->where('name', 'like', "%{$search}%")
-                                                ->orWhere('category', 'like', "%{$search}%")
-                                                ->orWhere('contact_person', 'like', "%{$search}%")
-                                                ->orWhere('phone', 'like', "%{$search}%")
-                                                ->orWhere('email', 'like', "%{$search}%");
-                                        })
-                                        ->orderBy('name')
-                                        ->limit(20)
-                                        ->pluck('name', 'id')
-                                        ->toArray())
-                                    ->getOptionLabelUsing(fn($value): ?string => Vendor::find($value)?->name)
-                                    ->afterStateUpdated(function ($state, callable $set) {
-                                        if (blank($state)) {
-                                            return;
-                                        }
-
-                                        $vendor = Vendor::find($state);
-
-                                        if (! $vendor) {
-                                            return;
-                                        }
-
-                                        $set('vendor_name', $vendor->name);
-                                        $set('contact_person', $vendor->contact_person);
-                                        $set('phone', $vendor->phone);
-                                        $set('email', $vendor->email);
-                                    })
-                                    ->columnSpanFull(),
-
-                                TextInput::make('vendor_name')
-                                    ->label('Vendor Name')
-                                    ->required()
-                                    ->maxLength(191),
-
-                                TextInput::make('contact_person')
-                                    ->label('Contact Person')
-                                    ->maxLength(191),
-
-                                TextInput::make('phone')
-                                    ->label('Phone')
-                                    ->tel()
-                                    ->maxLength(191),
-
-                                TextInput::make('email')
-                                    ->label('Email')
-                                    ->email()
-                                    ->maxLength(191),
-
-                                TextInput::make('offer_total')
-                                    ->label('Offer Total')
-                                    ->numeric()
-                                    ->prefix('IDR'),
-
-                                TextInput::make('currency')
-                                    ->label('Currency')
-                                    ->default('IDR')
-                                    ->required()
-                                    ->maxLength(10),
-
-                                TextInput::make('lead_time_days')
-                                    ->label('Lead Time (Days)')
-                                    ->numeric()
-                                    ->minValue(0),
-
-                                TextInput::make('offer_rank')
-                                    ->label('Offer Rank')
-                                    ->numeric()
-                                    ->minValue(1)
-                                    ->maxValue(3),
-
-                                Textarea::make('offer_notes')
-                                    ->label('Offer Notes')
-                                    ->rows(3)
-                                    ->columnSpanFull(),
-
-                                FileUpload::make('quotation_file')
-                                    ->label('Quotation File')
-                                    ->disk('public')
-                                    ->directory('purchase-request-quotations')
-                                    ->visibility('public')
-                                    ->downloadable()
-                                    ->openable()
-                                    ->columnSpanFull(),
-                            ])
+                            ->schema(static::vendorOfferSchema())
                             ->columns(2)
                             ->columnSpanFull(),
                     ])
-                    ->visible(fn(?PurchaseRequest $record): bool => static::canShowVendorOffers($record))
+                    ->visible(fn(?PurchaseRequest $record, Get $get): bool => (
+                        ($get('vendor_comparison_mode') ?? $record?->vendor_comparison_mode ?? 'pr') === 'pr'
+                    ) && static::canShowVendorOffers($record))
                     ->columnSpanFull(),
             ]);
     }

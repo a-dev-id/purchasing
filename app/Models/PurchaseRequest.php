@@ -15,6 +15,7 @@ class PurchaseRequest extends Model
         'department_name',
         'title',
         'priority',
+        'date_needed',
         'status',
         'request_notes',
         'current_status_at',
@@ -23,6 +24,7 @@ class PurchaseRequest extends Model
         'submitted_at',
         'approved_at',
         'cancelled_at',
+        'vendor_comparison_mode',
     ];
 
     protected $casts = [
@@ -32,6 +34,7 @@ class PurchaseRequest extends Model
         'submitted_at' => 'datetime',
         'approved_at' => 'datetime',
         'cancelled_at' => 'datetime',
+        'date_needed' => 'date',
     ];
 
     public function requester(): BelongsTo

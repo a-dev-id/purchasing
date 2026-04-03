@@ -39,4 +39,11 @@ class PurchaseRequestItem extends Model
     {
         return $this->belongsTo(Item::class);
     }
+
+    public function vendorOffers(): HasMany
+    {
+        return $this->hasMany(PurchaseRequestItemVendorOffer::class)
+            ->orderBy('offer_rank')
+            ->orderBy('id');
+    }
 }
