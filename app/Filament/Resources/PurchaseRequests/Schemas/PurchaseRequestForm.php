@@ -209,7 +209,8 @@ class PurchaseRequestForm
             TextInput::make('vendor_name')
                 ->label('Vendor Name')
                 ->required()
-                ->maxLength(191),
+                ->maxLength(191)
+                ->live(),
 
             TextInput::make('contact_person')
                 ->label('Contact Person')
@@ -228,24 +229,14 @@ class PurchaseRequestForm
             TextInput::make('offer_total')
                 ->label('Offer Total')
                 ->numeric()
-                ->prefix('IDR'),
+                ->live(),
 
             TextInput::make('currency')
                 ->label('Currency')
                 ->default('IDR')
                 ->required()
-                ->maxLength(10),
-
-            TextInput::make('lead_time_days')
-                ->label('Lead Time (Days)')
-                ->numeric()
-                ->minValue(0),
-
-            TextInput::make('offer_rank')
-                ->label('Offer Rank')
-                ->numeric()
-                ->minValue(1)
-                ->maxValue(3),
+                ->maxLength(10)
+                ->live(),
 
             Textarea::make('offer_notes')
                 ->label('Offer Notes')
@@ -315,25 +306,26 @@ class PurchaseRequestForm
                             ->label('Date Needed')
                             ->native(false)
                             ->displayFormat('d M Y')
-                            ->required()
-                            ->columnSpanFull(),
+                            ->required(),
 
                         Select::make('vendor_comparison_mode')
                             ->label('Vendor Comparison Mode')
                             ->options([
                                 'item' => 'Mix item(s)',
-                                'pr' => 'Specific item(s)',
+                                'pr' => '1 PR, 3 Vendors',
                             ])
-                            ->default('item')
                             ->required()
-                            ->native(false)
-                            ->live()
-                            ->afterStateHydrated(function ($state, callable $set) {
-                                if (blank($state)) {
-                                    $set('vendor_comparison_mode', 'item');
-                                }
+                            ->default('item')
+                            ->visible(function (): bool {
+                                $user = Auth::user();
+
+                                return $user instanceof User && ($user->isPurchasing() || $user->isAdmin());
                             })
-                            ->columnSpanFull(),
+                            ->dehydrated(function (): bool {
+                                $user = Auth::user();
+
+                                return $user instanceof User && ($user->isPurchasing() || $user->isAdmin());
+                            }),
 
                         RichEditor::make('request_notes')
                             ->label('Request Description')
@@ -346,128 +338,167 @@ class PurchaseRequestForm
                             ])
                             ->columnSpanFull(),
                     ])
-                    ->columns(2),
+                    ->columns(3)
+                    ->columnSpanFull(),
 
-                Section::make('Requested Items')
+                Repeater::make('items')
+                    ->relationship()
+                    ->label('Items')
+                    ->defaultItems(1)
+                    ->reorderable()
+                    ->collapsible()
+                    ->collapsed()
+                    ->cloneable()
+                    ->itemLabel(function (array $state): ?string {
+                        $itemName = trim((string) ($state['item_name'] ?? ''));
+
+                        if ($itemName === '') {
+                            return 'New Item';
+                        }
+
+                        return \Illuminate\Support\Str::limit($itemName, 60);
+                    })
                     ->schema([
-                        Repeater::make('items')
+                        Select::make('item_id')
+                            ->label('Select Existing Item')
+                            ->searchable()
+                            ->preload()
+                            ->live()
+                            ->options(fn() => Item::query()
+                                ->where('is_active', true)
+                                ->orderBy('name')
+                                ->limit(50)
+                                ->pluck('name', 'id')
+                                ->toArray())
+                            ->getSearchResultsUsing(fn(string $search): array => Item::query()
+                                ->where('is_active', true)
+                                ->where(function ($query) use ($search) {
+                                    $query->where('name', 'like', "%{$search}%")
+                                        ->orWhere('sku', 'like', "%{$search}%")
+                                        ->orWhere('brand', 'like', "%{$search}%")
+                                        ->orWhere('category', 'like', "%{$search}%");
+                                })
+                                ->orderBy('name')
+                                ->limit(20)
+                                ->pluck('name', 'id')
+                                ->toArray())
+                            ->getOptionLabelUsing(fn($value): ?string => Item::find($value)?->name)
+                            ->afterStateUpdated(function ($state, callable $set) {
+                                if (blank($state)) {
+                                    return;
+                                }
+
+                                $item = Item::find($state);
+
+                                if (! $item) {
+                                    return;
+                                }
+
+                                $set('item_name', $item->name);
+                                $set('unit', $item->default_unit);
+                                $set('specification', $item->default_specification);
+                            })
+                            ->columnSpanFull(),
+
+                        TextInput::make('item_name')
+                            ->label('Item Name')
+                            ->required()
+                            ->maxLength(255)
+                            ->live()
+                            ->columns(3),
+
+                        TextInput::make('qty')
+                            ->numeric()
+                            ->required()
+                            ->default(1)
+                            ->columns(3),
+
+                        TextInput::make('unit')
+                            ->placeholder('pcs, box, liter, set')
+                            ->maxLength(100)
+                            ->columns(3),
+
+                        RichEditor::make('specification')
+                            ->label('Specification')
+                            ->toolbarButtons([
+                                'bold',
+                                'italic',
+                                'underline',
+                                'bulletList',
+                                'orderedList',
+                            ])
+                            ->columnSpanFull(),
+
+                        Repeater::make('photos')
                             ->relationship()
-                            ->label('Items')
-                            ->defaultItems(1)
+                            ->label('Item Photos')
+                            ->defaultItems(0)
                             ->reorderable()
                             ->collapsible()
-                            ->cloneable()
+                            ->collapsed()
                             ->schema([
-                                Select::make('item_id')
-                                    ->label('Select Existing Item')
-                                    ->searchable()
-                                    ->preload()
+                                FileUpload::make('file_path')
+                                    ->label('Photo')
+                                    ->image()
+                                    ->disk('public')
+                                    ->directory('purchase-request-items')
+                                    ->visibility('public')
+                                    ->required(),
+
+                                TextInput::make('file_name')
+                                    ->label('Photo Name')
                                     ->live()
-                                    ->options(fn() => Item::query()
-                                        ->where('is_active', true)
-                                        ->orderBy('name')
-                                        ->limit(50)
-                                        ->pluck('name', 'id')
-                                        ->toArray())
-                                    ->getSearchResultsUsing(fn(string $search): array => Item::query()
-                                        ->where('is_active', true)
-                                        ->where(function ($query) use ($search) {
-                                            $query->where('name', 'like', "%{$search}%")
-                                                ->orWhere('sku', 'like', "%{$search}%")
-                                                ->orWhere('brand', 'like', "%{$search}%")
-                                                ->orWhere('category', 'like', "%{$search}%");
-                                        })
-                                        ->orderBy('name')
-                                        ->limit(20)
-                                        ->pluck('name', 'id')
-                                        ->toArray())
-                                    ->getOptionLabelUsing(fn($value): ?string => Item::find($value)?->name)
-                                    ->afterStateUpdated(function ($state, callable $set) {
-                                        if (blank($state)) {
-                                            return;
-                                        }
-
-                                        $item = Item::find($state);
-
-                                        if (! $item) {
-                                            return;
-                                        }
-
-                                        $set('item_name', $item->name);
-                                        $set('unit', $item->default_unit);
-                                        $set('specification', $item->default_specification);
-                                    })
-                                    ->columnSpanFull(),
-
-                                TextInput::make('item_name')
-                                    ->label('Item Name')
-                                    ->required()
                                     ->maxLength(255),
+                            ])
+                            ->itemLabel(function (array $state): string {
+                                static $photoIndex = 0;
+                                $photoIndex++;
 
-                                RichEditor::make('specification')
-                                    ->label('Specification')
-                                    ->toolbarButtons([
-                                        'bold',
-                                        'italic',
-                                        'underline',
-                                        'bulletList',
-                                        'orderedList',
-                                    ])
-                                    ->columnSpanFull(),
+                                $photoName = trim((string) ($state['file_name'] ?? ''));
 
-                                TextInput::make('qty')
-                                    ->numeric()
-                                    ->required()
-                                    ->default(1),
+                                if ($photoName !== '') {
+                                    return \Illuminate\Support\Str::limit($photoName, 40);
+                                }
 
-                                TextInput::make('unit')
-                                    ->placeholder('pcs, box, liter, set')
-                                    ->maxLength(100),
+                                return 'Photo ' . $photoIndex;
+                            })
+                            ->extraAttributes([
+                                'class' => 'rounded-xl border border-gray-200 bg-gray-50 p-1',
+                            ])
+                            ->columns(2)
+                            ->columnSpanFull(),
 
-                                RichEditor::make('purpose')
-                                    ->label('Purpose')
-                                    ->toolbarButtons([
-                                        'bold',
-                                        'italic',
-                                        'underline',
-                                        'bulletList',
-                                        'orderedList',
-                                    ])
-                                    ->columnSpanFull(),
-
-                                Repeater::make('photos')
-                                    ->relationship()
-                                    ->label('Item Photos')
-                                    ->defaultItems(0)
-                                    ->reorderable()
-                                    ->collapsible()
-                                    ->schema([
-                                        FileUpload::make('file_path')
-                                            ->label('Photo')
-                                            ->image()
-                                            ->disk('public')
-                                            ->directory('purchase-request-items')
-                                            ->visibility('public')
-                                            ->required(),
-
-                                        TextInput::make('file_name')
-                                            ->label('Photo Name')
-                                            ->maxLength(255),
-                                    ])
-                                    ->columns(2)
-                                    ->columnSpanFull(),
-
+                        Section::make('Item Vendor Offers')
+                            ->extraAttributes([
+                                'class' => 'vendor-offers-section',
+                            ])
+                            ->schema([
                                 Repeater::make('vendorOffers')
                                     ->relationship('vendorOffers')
-                                    ->label('Item Vendor Offers')
+                                    ->hiddenLabel()
                                     ->defaultItems(0)
                                     ->addActionLabel('Add Vendor Offer')
                                     ->maxItems(3)
                                     ->reorderable()
                                     ->collapsible()
+                                    ->collapsed()
                                     ->cloneable()
+                                    ->itemLabel(function (array $state): ?string {
+                                        $vendorName = trim((string) ($state['vendor_name'] ?? ''));
+                                        $currency = trim((string) ($state['currency'] ?? 'IDR'));
+                                        $offerTotal = $state['offer_total'] ?? null;
+
+                                        $label = $vendorName !== '' ? $vendorName : 'New Vendor Offer';
+
+                                        if ($offerTotal !== null && $offerTotal !== '') {
+                                            $formattedTotal = number_format((float) $offerTotal, 0, ',', '.');
+                                            $label .= ' - ' . $currency . ' ' . $formattedTotal;
+                                        }
+
+                                        return $label;
+                                    })
                                     ->schema(static::vendorOfferSchema())
-                                    ->columns(2)
+                                    ->columns(3)
                                     ->columnSpanFull()
                                     ->visible(function (Get $get, \Livewire\Component $livewire): bool {
                                         $purchaseRequest = method_exists($livewire, 'getRecord')
@@ -478,9 +509,14 @@ class PurchaseRequestForm
                                             && static::canShowVendorOffers($purchaseRequest);
                                     }),
                             ])
-                            ->columns(2)
+                            ->compact()
+                            ->extraAttributes([
+                                'class' => 'rounded-xl border border-gray-200 bg-gray-50 p-1',
+                            ])
                             ->columnSpanFull(),
-                    ]),
+                    ])
+                    ->columns(3)
+                    ->columnSpanFull(),
 
                 Section::make('PR Vendor Offers')
                     ->schema([

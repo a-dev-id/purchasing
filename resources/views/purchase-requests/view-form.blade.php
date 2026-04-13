@@ -13,7 +13,20 @@ $bid1 = $offers->firstWhere('offer_rank', 1) ?? $offers->get(0);
 $bid2 = $offers->firstWhere('offer_rank', 2) ?? $offers->get(1);
 $bid3 = $offers->firstWhere('offer_rank', 3) ?? $offers->get(2);
 
-$selectedOffer = $purchaseRequest->vendorOffers->firstWhere('is_selected_by_accounting', true);
+$vendorMode = $purchaseRequest->vendor_comparison_mode ?? 'item';
+$isPrVendorMode = $vendorMode === 'pr';
+
+$selectedPrOffer = collect($purchaseRequest->vendorOffers ?? [])
+->firstWhere('is_selected_by_accounting', true);
+
+$selectedItemOffers = collect($purchaseRequest->items ?? [])
+->mapWithKeys(function ($item) {
+$selectedOffer = collect($item->vendorOffers ?? [])
+->firstWhere('is_selected_by_accounting', true);
+
+return [$item->id => $selectedOffer];
+})
+->filter();
 
 $formatMoney = function ($amount, $currency = 'IDR') {
 if ($amount === null || $amount === '') {
@@ -55,7 +68,33 @@ $unitPrice = (float) ($item->unit_price ?? $item->price ?? 0);
 return $qty * $unitPrice;
 });
 
-$displayTotalAmount = $selectedOffer?->offer_total;
+$selectedItemsTotal = $selectedItemOffers->sum(function ($offer) {
+return (float) ($offer->offer_total ?? 0);
+});
+
+$displayTotalAmount = null;
+$displayCurrency = 'IDR';
+
+if ($isPrVendorMode) {
+if (filled($selectedPrOffer?->offer_total)) {
+$displayTotalAmount = (float) $selectedPrOffer->offer_total;
+$displayCurrency = $selectedPrOffer->currency ?: 'IDR';
+}
+} else {
+if ($selectedItemOffers->isNotEmpty()) {
+$displayTotalAmount = $selectedItemsTotal;
+
+$currencies = $selectedItemOffers
+->map(fn ($offer) => $offer->currency ?: 'IDR')
+->filter()
+->unique()
+->values();
+
+$displayCurrency = $currencies->count() === 1
+? $currencies->first()
+: 'IDR';
+}
+}
 
 if (($displayTotalAmount === null || $displayTotalAmount === '') && $itemsTotal > 0) {
 $displayTotalAmount = $itemsTotal;
@@ -507,8 +546,6 @@ return [
                     $unitPrice = $item->unit_price ?? $item->price ?? null;
                     $lineTotal = ($qty !== null && $unitPrice !== null) ? ((float) $qty * (float) $unitPrice) : null;
 
-                    $vendorMode = $purchaseRequest->vendor_comparison_mode ?? 'item';
-                    $isPrVendorMode = $vendorMode === 'pr';
                     $isFirstRow = $i === 0;
 
                     if ($item && ! $isPrVendorMode) {
@@ -526,10 +563,21 @@ return [
                     $rowBid1 = $rowBid1 ?? $itemOffers->get(0);
                     $rowBid2 = $rowBid2 ?? $itemOffers->get(1);
                     $rowBid3 = $rowBid3 ?? $itemOffers->get(2);
+
+                    $selectedRowOffer = $itemOffers->firstWhere('is_selected_by_accounting', true);
+                    $rowFinalTotal = filled($selectedRowOffer?->offer_total)
+                    ? (float) $selectedRowOffer->offer_total
+                    : $lineTotal;
+
+                    $rowFinalCurrency = $selectedRowOffer?->currency ?: 'IDR';
                     } else {
                     $rowBid1 = $bid1;
                     $rowBid2 = $bid2;
                     $rowBid3 = $bid3;
+
+                    $selectedRowOffer = $selectedPrOffer;
+                    $rowFinalTotal = $lineTotal;
+                    $rowFinalCurrency = 'IDR';
                     }
                     @endphp
 
@@ -542,11 +590,11 @@ return [
                                 {{ $item->item?->name ?? $item->item_name ?? 'Item' }}
                             </div>
 
-                            @if (!empty($item->specification))
+                            @if (! empty($item->specification))
                             <div class="item-notes">{{ $cleanRichText($item->specification) }}</div>
                             @endif
 
-                            @if (!empty($item->purpose))
+                            @if (! empty($item->purpose))
                             <div class="item-notes" style="margin-top: 8px;">{{ $cleanRichText($item->purpose) }}</div>
                             @endif
                             @else
@@ -636,7 +684,9 @@ return [
                         </td>
                         @endif
 
-                        <td class="text-right">{{ $item ? $formatMoney($lineTotal) : '-' }}</td>
+                        <td class="text-right">
+                            {{ $item ? $formatMoney($rowFinalTotal, $rowFinalCurrency) : '-' }}
+                        </td>
                     </tr>
                     @endfor
             </tbody>
@@ -683,6 +733,133 @@ return [
                     </div>
                 </div>
                 @endforeach
+                @endif
+            </div>
+        </div>
+
+        <div class="photos-section">
+            <div class="row-title">Vendor Offer Files</div>
+
+            <div class="photos-body">
+                @php
+                $imageExtensions = ['jpg', 'jpeg', 'png', 'webp', 'gif'];
+                $vendorMode = $purchaseRequest->vendor_comparison_mode ?? 'item';
+                @endphp
+
+                @if ($vendorMode === 'pr')
+                @php
+                $prVendorOffers = collect($purchaseRequest->vendorOffers ?? [])
+                ->sortBy([
+                ['offer_rank', 'asc'],
+                ['id', 'asc'],
+                ])
+                ->filter(fn ($offer) => filled($offer->quotation_file))
+                ->values();
+                @endphp
+
+                @if ($prVendorOffers->isEmpty())
+                <div class="empty-photos">No vendor offer files uploaded.</div>
+                @else
+                <div class="photo-item">
+                    <div class="photo-grid">
+                        @foreach ($prVendorOffers as $offer)
+                        @php
+                        $filePath = $offer->quotation_file;
+                        $fileUrl = \Illuminate\Support\Str::startsWith($filePath, ['http://', 'https://'])
+                        ? $filePath
+                        : \Illuminate\Support\Facades\Storage::disk('public')->url($filePath);
+
+                        $fileName = basename($filePath);
+                        $fileExt = strtolower(pathinfo($filePath, PATHINFO_EXTENSION));
+                        $isImage = in_array($fileExt, $imageExtensions, true);
+                        @endphp
+
+                        <div class="photo-card">
+                            <div style="font-size: 12px; font-weight: 700; margin-bottom: 6px;">
+                                {{ $offer->vendor?->name ?? $offer->vendor_name ?? 'Vendor' }}
+                            </div>
+
+                            @if ($isImage)
+                            <a href="{{ $fileUrl }}" target="_blank">
+                                <img src="{{ $fileUrl }}" alt="{{ $fileName }}">
+                            </a>
+                            <div class="photo-caption">{{ $fileName }}</div>
+                            @else
+                            <div class="photo-caption">
+                                <a href="{{ $fileUrl }}" target="_blank" style="color: #111827; text-decoration: underline;">
+                                    {{ $fileName }}
+                                </a>
+                            </div>
+                            @endif
+                        </div>
+                        @endforeach
+                    </div>
+                </div>
+                @endif
+                @else
+                @php
+                $itemsWithVendorFiles = $purchaseRequest->items
+                ->map(function ($item) {
+                $offers = collect($item->vendorOffers ?? [])
+                ->sortBy([
+                ['offer_rank', 'asc'],
+                ['id', 'asc'],
+                ])
+                ->filter(fn ($offer) => filled($offer->quotation_file))
+                ->values();
+
+                return [
+                'item_name' => $item->item?->name ?? $item->item_name ?? 'Item',
+                'offers' => $offers,
+                ];
+                })
+                ->filter(fn ($item) => $item['offers']->isNotEmpty())
+                ->values();
+                @endphp
+
+                @if ($itemsWithVendorFiles->isEmpty())
+                <div class="empty-photos">No vendor offer files uploaded.</div>
+                @else
+                @foreach ($itemsWithVendorFiles as $vendorItem)
+                <div class="photo-item">
+                    <div class="photo-item-title">{{ $vendorItem['item_name'] }}</div>
+
+                    <div class="photo-grid">
+                        @foreach ($vendorItem['offers'] as $offer)
+                        @php
+                        $filePath = $offer->quotation_file;
+                        $fileUrl = \Illuminate\Support\Str::startsWith($filePath, ['http://', 'https://'])
+                        ? $filePath
+                        : \Illuminate\Support\Facades\Storage::disk('public')->url($filePath);
+
+                        $fileName = basename($filePath);
+                        $fileExt = strtolower(pathinfo($filePath, PATHINFO_EXTENSION));
+                        $isImage = in_array($fileExt, $imageExtensions, true);
+                        @endphp
+
+                        <div class="photo-card">
+                            <div style="font-size: 12px; font-weight: 700; margin-bottom: 6px;">
+                                {{ $offer->vendor?->name ?? $offer->vendor_name ?? 'Vendor' }}
+                            </div>
+
+                            @if ($isImage)
+                            <a href="{{ $fileUrl }}" target="_blank">
+                                <img src="{{ $fileUrl }}" alt="{{ $fileName }}">
+                            </a>
+                            <div class="photo-caption">{{ $fileName }}</div>
+                            @else
+                            <div class="photo-caption">
+                                <a href="{{ $fileUrl }}" target="_blank" style="color: #111827; text-decoration: underline;">
+                                    {{ $fileName }}
+                                </a>
+                            </div>
+                            @endif
+                        </div>
+                        @endforeach
+                    </div>
+                </div>
+                @endforeach
+                @endif
                 @endif
             </div>
         </div>

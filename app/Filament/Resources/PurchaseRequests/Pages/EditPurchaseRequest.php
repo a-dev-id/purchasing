@@ -25,6 +25,13 @@ class EditPurchaseRequest extends EditRecord
     protected function getHeaderActions(): array
     {
         return [
+            Action::make('viewPrForm')
+                ->label('View PR Form')
+                ->color('gray')
+                ->icon('heroicon-m-eye')
+                ->url(fn() => route('purchase-requests.view-form', $this->record))
+                ->openUrlInNewTab(),
+
             Action::make('submitRequest')
                 ->label('Submit')
                 ->color('success')
