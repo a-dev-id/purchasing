@@ -1,32 +1,210 @@
 @php
+use App\Models\PurchaseRequestLog;
 use Illuminate\Support\Facades\Storage;
 
-$offers = $purchaseRequest->vendorOffers
+$items = collect($purchaseRequest->items ?? []);
+
+$prOffers = collect($purchaseRequest->vendorOffers ?? [])
 ->sortBy([
 ['offer_rank', 'asc'],
 ['id', 'asc'],
 ])
-->take(3)
 ->values();
 
-$bid1 = $offers->firstWhere('offer_rank', 1) ?? $offers->get(0);
-$bid2 = $offers->firstWhere('offer_rank', 2) ?? $offers->get(1);
-$bid3 = $offers->firstWhere('offer_rank', 3) ?? $offers->get(2);
+$bid1 = $prOffers->firstWhere('offer_rank', 1) ?? $prOffers->get(0);
+$bid2 = $prOffers->firstWhere('offer_rank', 2) ?? $prOffers->get(1);
+$bid3 = $prOffers->firstWhere('offer_rank', 3) ?? $prOffers->get(2);
 
 $vendorMode = $purchaseRequest->vendor_comparison_mode ?? 'item';
 $isPrVendorMode = $vendorMode === 'pr';
 
-$selectedPrOffer = collect($purchaseRequest->vendorOffers ?? [])
-->firstWhere('is_selected_by_accounting', true);
+$getItemQty = function ($item): float {
+return (float) ($item->qty ?? $item->quantity ?? 0);
+};
 
-$selectedItemOffers = collect($purchaseRequest->items ?? [])
-->mapWithKeys(function ($item) {
-$selectedOffer = collect($item->vendorOffers ?? [])
-->firstWhere('is_selected_by_accounting', true);
+$getOfferCurrency = function ($offer): string {
+if (! $offer) {
+return 'IDR';
+}
 
-return [$item->id => $selectedOffer];
+return $offer->currency
+?? $offer->currency_code
+?? 'IDR';
+};
+
+$getOfferUnitPrice = function ($offer): ?float {
+if (! $offer) {
+return null;
+}
+
+foreach ([
+'offer_price',
+'offer_unit_price',
+'price',
+'unit_price',
+'unit_cost',
+'cost_per_unit',
+] as $field) {
+$value = data_get($offer, $field);
+
+if ($value !== null && $value !== '') {
+return (float) $value;
+}
+}
+
+return null;
+};
+
+$getOfferLineTotal = function ($offer, $qty = 1) use ($getOfferUnitPrice): ?float {
+if (! $offer) {
+return null;
+}
+
+foreach ([
+'offer_total',
+'total_price',
+'total_amount',
+'grand_total',
+'line_total',
+'amount',
+'total',
+] as $field) {
+$value = data_get($offer, $field);
+
+if ($value !== null && $value !== '') {
+return (float) $value;
+}
+}
+
+$unitPrice = $getOfferUnitPrice($offer);
+
+if ($unitPrice !== null) {
+return (float) $qty * $unitPrice;
+}
+
+return null;
+};
+
+$getOfferIdentity = function ($offer): ?string {
+if (! $offer) {
+return null;
+}
+
+$id = data_get($offer, 'id');
+
+if (filled($id)) {
+return 'id:' . $id;
+}
+
+$vendorId = data_get($offer, 'vendor_id') ?? data_get($offer, 'vendor.id');
+$vendorName = strtolower(trim((string) (data_get($offer, 'vendor_name') ?? data_get($offer, 'vendor.name') ?? '')));
+$amount = data_get($offer, 'offer_total') ?? data_get($offer, 'offer_price') ?? data_get($offer, 'price') ?? '';
+$currency = strtolower(trim((string) ($offer->currency ?? data_get($offer, 'currency_code') ?? 'idr')));
+
+return 'fallback:' . ($vendorId ?: '-') . '|' . $vendorName . '|' . $amount . '|' . $currency;
+};
+
+$isSameOffer = function ($left, $right) use ($getOfferIdentity): bool {
+if (! $left || ! $right) {
+return false;
+}
+
+return $getOfferIdentity($left) === $getOfferIdentity($right);
+};
+
+$resolveSelectedOffer = function ($owner, $offers) {
+$offers = collect($offers ?? [])->values();
+
+if ($offers->isEmpty()) {
+return null;
+}
+
+foreach ([
+'is_selected_by_accounting',
+'is_selected',
+'is_approved',
+'is_chosen',
+'is_final',
+'selected',
+] as $flagField) {
+$found = $offers->first(function ($offer) use ($flagField) {
+return (bool) data_get($offer, $flagField);
+});
+
+if ($found) {
+return $found;
+}
+}
+
+foreach ([
+'selected_vendor_offer_id',
+'accounting_selected_vendor_offer_id',
+'approved_vendor_offer_id',
+'chosen_vendor_offer_id',
+'final_vendor_offer_id',
+'vendor_offer_id',
+] as $idField) {
+$selectedOfferId = data_get($owner, $idField);
+
+if ($selectedOfferId !== null && $selectedOfferId !== '') {
+$found = $offers->first(function ($offer) use ($selectedOfferId) {
+return (string) data_get($offer, 'id') === (string) $selectedOfferId;
+});
+
+if ($found) {
+return $found;
+}
+}
+}
+
+foreach ([
+'selected_vendor_id',
+'accounting_selected_vendor_id',
+'approved_vendor_id',
+'chosen_vendor_id',
+'final_vendor_id',
+'vendor_id',
+] as $vendorIdField) {
+$selectedVendorId = data_get($owner, $vendorIdField);
+
+if ($selectedVendorId !== null && $selectedVendorId !== '') {
+$found = $offers->first(function ($offer) use ($selectedVendorId) {
+$offerVendorId = data_get($offer, 'vendor_id') ?? data_get($offer, 'vendor.id');
+
+return (string) $offerVendorId === (string) $selectedVendorId;
+});
+
+if ($found) {
+return $found;
+}
+}
+}
+
+if ($offers->count() === 1) {
+return $offers->first();
+}
+
+return null;
+};
+
+$selectedPrOffer = $resolveSelectedOffer($purchaseRequest, $prOffers);
+
+$selectedItemOffers = $items
+->map(function ($item) use ($resolveSelectedOffer) {
+$itemOffers = collect($item->vendorOffers ?? [])
+->sortBy([
+['offer_rank', 'asc'],
+['id', 'asc'],
+])
+->values();
+
+return [
+'item' => $item,
+'offer' => $resolveSelectedOffer($item, $itemOffers),
+];
 })
-->filter();
+->filter(fn ($row) => filled($row['offer']))
+->values();
 
 $formatMoney = function ($amount, $currency = 'IDR') {
 if ($amount === null || $amount === '') {
@@ -59,33 +237,187 @@ $submittedDate = filled($purchaseRequest->submitted_at)
 ? $purchaseRequest->submitted_at->timezone('Asia/Makassar')->format('d M Y H:i')
 : '-';
 
-$rowsToShow = max($purchaseRequest->items->count(), 1);
+$normalize = function ($value) {
+if ($value === null || $value === '') {
+return null;
+}
 
-$itemsTotal = $purchaseRequest->items->sum(function ($item) {
+return strtolower(trim((string) $value));
+};
+
+$currentStatus = $normalize($purchaseRequest->status ?? null);
+
+$workflowLogs = PurchaseRequestLog::query()
+->where('purchase_request_id', $purchaseRequest->id)
+->orderBy('acted_at')
+->orderBy('created_at')
+->get();
+
+$findLatestLog = function (array $actions = [], array $toStatuses = [], array $roles = []) use ($workflowLogs, $normalize) {
+$actions = collect($actions)->map(fn ($value) => $normalize($value))->filter()->values()->all();
+$toStatuses = collect($toStatuses)->map(fn ($value) => $normalize($value))->filter()->values()->all();
+$roles = collect($roles)->map(fn ($value) => $normalize($value))->filter()->values()->all();
+
+return $workflowLogs->last(function ($log) use ($actions, $toStatuses, $roles, $normalize) {
+$action = $normalize($log->action ?? null);
+$toStatus = $normalize($log->to_status ?? null);
+$role = $normalize($log->role_name ?? null);
+
+return in_array($action, $actions, true)
+|| in_array($toStatus, $toStatuses, true)
+|| in_array($role, $roles, true);
+});
+};
+
+$getLogTimestamp = function ($log) {
+if (! $log) {
+return null;
+}
+
+$date = $log->acted_at ?? $log->created_at;
+
+return filled($date) ? \Carbon\Carbon::parse($date) : null;
+};
+
+$isLogAfter = function ($candidate, $reference) use ($getLogTimestamp): bool {
+if (! $candidate) {
+return false;
+}
+
+if (! $reference) {
+return true;
+}
+
+$candidateAt = $getLogTimestamp($candidate);
+$referenceAt = $getLogTimestamp($reference);
+
+if (! $candidateAt) {
+return false;
+}
+
+if (! $referenceAt) {
+return true;
+}
+
+return $candidateAt->gt($referenceAt);
+};
+
+$latestSubmittedToAccounting = $findLatestLog(
+actions: ['submitted_to_accounting', 'submit_to_accounting', 'sent_to_accounting'],
+toStatuses: ['submitted_to_accounting']
+);
+
+$latestSubmittedToGm = $findLatestLog(
+actions: ['submitted_to_gm', 'submit_to_gm', 'sent_to_gm'],
+toStatuses: ['submitted_to_gm']
+);
+
+$latestReturnedToPurchasing = $findLatestLog(
+actions: ['revision_to_purchasing_from_accounting', 'revision_to_purchasing_from_gm'],
+toStatuses: ['revision_to_purchasing_from_accounting', 'revision_to_purchasing_from_gm']
+);
+
+$latestReturnedFromGm = $findLatestLog(
+actions: [
+'revision_to_accounting_from_gm',
+'revision_to_purchasing_from_gm',
+'revision_to_requester_from_gm',
+],
+toStatuses: [
+'revision_to_accounting_from_gm',
+'revision_to_purchasing_from_gm',
+'revision_to_requester_from_gm',
+]
+);
+
+$purchasingApproval = $latestSubmittedToAccounting;
+
+if (! $isLogAfter($purchasingApproval, $latestReturnedToPurchasing)) {
+$purchasingApproval = null;
+}
+
+$accountingApproval = $latestSubmittedToGm;
+
+if (! $isLogAfter($accountingApproval, $latestSubmittedToAccounting)) {
+$accountingApproval = null;
+}
+
+if (! $isLogAfter($accountingApproval, $latestReturnedFromGm)) {
+$accountingApproval = null;
+}
+
+if (! $accountingApproval && in_array($currentStatus, ['submitted_to_gm', 'gm_approved', 'approved'], true)) {
+$fallbackAccountingApproval = $findLatestLog(
+roles: ['accounting', 'cost controller', 'financial controller']
+);
+
+if (
+$isLogAfter($fallbackAccountingApproval, $latestSubmittedToAccounting)
+&& $isLogAfter($fallbackAccountingApproval, $latestReturnedFromGm)
+) {
+$accountingApproval = $fallbackAccountingApproval;
+}
+}
+
+$gmApproval = $findLatestLog(
+actions: ['gm_approved', 'approved', 'approve'],
+toStatuses: ['gm_approved', 'approved'],
+roles: ['gm', 'general manager']
+);
+
+if (! $isLogAfter($gmApproval, $latestSubmittedToGm)) {
+$gmApproval = null;
+}
+
+if (! $isLogAfter($gmApproval, $latestReturnedFromGm)) {
+$gmApproval = null;
+}
+
+$financialControllerApproval = $findLatestLog(
+actions: ['approved_by_financial_controller', 'final_approved'],
+toStatuses: ['final_approved'],
+roles: ['financial controller']
+);
+
+$approvalDate = function ($log) {
+if (! $log) {
+return '-';
+}
+
+$date = $log->acted_at ?? $log->created_at;
+
+return filled($date)
+? \Carbon\Carbon::parse($date)->timezone('Asia/Makassar')->format('d M Y H:i')
+: '-';
+};
+
+$rowsToShow = max($items->count(), 1);
+
+$itemsTotal = $items->sum(function ($item) {
 $qty = (float) ($item->qty ?? $item->quantity ?? 0);
 $unitPrice = (float) ($item->unit_price ?? $item->price ?? 0);
 
 return $qty * $unitPrice;
 });
 
-$selectedItemsTotal = $selectedItemOffers->sum(function ($offer) {
-return (float) ($offer->offer_total ?? 0);
+$selectedItemsTotal = $selectedItemOffers->sum(function ($row) use ($getItemQty, $getOfferLineTotal) {
+return (float) ($getOfferLineTotal($row['offer'], $getItemQty($row['item'])) ?? 0);
 });
 
 $displayTotalAmount = null;
 $displayCurrency = 'IDR';
 
 if ($isPrVendorMode) {
-if (filled($selectedPrOffer?->offer_total)) {
-$displayTotalAmount = (float) $selectedPrOffer->offer_total;
-$displayCurrency = $selectedPrOffer->currency ?: 'IDR';
+if ($selectedPrOffer) {
+$displayTotalAmount = $getOfferLineTotal($selectedPrOffer, 1);
+$displayCurrency = $getOfferCurrency($selectedPrOffer);
 }
 } else {
 if ($selectedItemOffers->isNotEmpty()) {
 $displayTotalAmount = $selectedItemsTotal;
 
 $currencies = $selectedItemOffers
-->map(fn ($offer) => $offer->currency ?: 'IDR')
+->map(fn ($row) => $getOfferCurrency($row['offer']))
 ->filter()
 ->unique()
 ->values();
@@ -100,7 +432,7 @@ if (($displayTotalAmount === null || $displayTotalAmount === '') && $itemsTotal 
 $displayTotalAmount = $itemsTotal;
 }
 
-$itemsWithPhotos = $purchaseRequest->items
+$itemsWithPhotos = $items
 ->map(function ($item) {
 $photos = collect($item->photos ?? [])
 ->filter(fn ($photo) => filled($photo->file_path))
@@ -229,13 +561,6 @@ return [
             letter-spacing: 0.4px;
         }
 
-        .req-no {
-            font-size: 18px;
-            font-weight: 700;
-            text-align: right;
-            margin-top: 2px;
-        }
-
         .main-table {
             width: 100%;
             border-collapse: collapse;
@@ -281,6 +606,28 @@ return [
             line-height: 1.4;
             white-space: pre-line;
             word-break: break-word;
+        }
+
+        .selected-vendor-cell {
+            background: #ecfdf5 !important;
+        }
+
+        .selected-vendor-name {
+            color: #166534;
+        }
+
+        .selected-vendor-badge {
+            display: inline-block;
+            margin-bottom: 6px;
+            padding: 2px 8px;
+            font-size: 10px;
+            font-weight: 700;
+            text-transform: uppercase;
+            letter-spacing: 0.3px;
+            color: #166534;
+            background: #dcfce7;
+            border: 1px solid #86efac;
+            border-radius: 999px;
         }
 
         .remarks-grid {
@@ -332,6 +679,12 @@ return [
             width: 48%;
             font-weight: 700;
             text-transform: uppercase;
+        }
+
+        .total-amount-value {
+            font-size: 28px !important;
+            font-weight: 700;
+            line-height: 1.2;
         }
 
         .photos-section {
@@ -402,7 +755,7 @@ return [
         }
 
         .sign-box {
-            min-height: 104px;
+            min-height: 132px;
             border-right: 1px solid #111827;
             display: flex;
             flex-direction: column;
@@ -420,10 +773,13 @@ return [
             text-transform: uppercase;
         }
 
-        .sign-name {
-            margin-top: 26px;
-            font-weight: 400;
+        .sign-status {
+            margin-top: 18px;
+            font-size: 12px;
+            font-weight: 700;
+            color: #15803d;
             text-transform: none;
+            line-height: 1.35;
         }
 
         .sign-date {
@@ -432,6 +788,13 @@ return [
             font-size: 12px;
             font-weight: 700;
             text-transform: uppercase;
+        }
+
+        .sign-date-value {
+            margin-top: 4px;
+            font-weight: 400;
+            text-transform: none;
+            line-height: 1.35;
         }
 
         @page {
@@ -540,49 +903,68 @@ return [
                 </tr>
             </thead>
             <tbody>
-                @for ($i = 0; $i < $rowsToShow; $i++) @php $item=$purchaseRequest->items->get($i);
+                @for ($i = 0; $i < $rowsToShow; $i++) @php $item=$items->get($i);
 
-                    $qty = $item->qty ?? $item->quantity ?? null;
-                    $unitPrice = $item->unit_price ?? $item->price ?? null;
-                    $lineTotal = ($qty !== null && $unitPrice !== null) ? ((float) $qty * (float) $unitPrice) : null;
+                    $qty = $item ? ($item->qty ?? $item->quantity ?? null) : null;
+                    $baseUnitPrice = $item ? ($item->unit_price ?? $item->price ?? null) : null;
+                    $baseLineTotal = ($qty !== null && $baseUnitPrice !== null)
+                    ? ((float) $qty * (float) $baseUnitPrice)
+                    : null;
+
+                    $rowDisplayUnitPrice = $baseUnitPrice;
+                    $rowDisplayCurrency = 'IDR';
+                    $rowFinalTotal = $baseLineTotal;
+                    $rowFinalCurrency = 'IDR';
 
                     $isFirstRow = $i === 0;
 
                     if ($item && ! $isPrVendorMode) {
-                    $itemOffers = $item->vendorOffers
+                    $itemOffers = collect($item->vendorOffers ?? [])
                     ->sortBy([
                     ['offer_rank', 'asc'],
                     ['id', 'asc'],
                     ])
                     ->values();
 
-                    $rowBid1 = $itemOffers->firstWhere('offer_rank', 1);
-                    $rowBid2 = $itemOffers->firstWhere('offer_rank', 2);
-                    $rowBid3 = $itemOffers->firstWhere('offer_rank', 3);
+                    $rowBid1 = $itemOffers->firstWhere('offer_rank', 1) ?? $itemOffers->get(0);
+                    $rowBid2 = $itemOffers->firstWhere('offer_rank', 2) ?? $itemOffers->get(1);
+                    $rowBid3 = $itemOffers->firstWhere('offer_rank', 3) ?? $itemOffers->get(2);
 
-                    $rowBid1 = $rowBid1 ?? $itemOffers->get(0);
-                    $rowBid2 = $rowBid2 ?? $itemOffers->get(1);
-                    $rowBid3 = $rowBid3 ?? $itemOffers->get(2);
+                    $selectedRowOffer = $resolveSelectedOffer($item, $itemOffers);
 
-                    $selectedRowOffer = $itemOffers->firstWhere('is_selected_by_accounting', true);
-                    $rowFinalTotal = filled($selectedRowOffer?->offer_total)
-                    ? (float) $selectedRowOffer->offer_total
-                    : $lineTotal;
+                    if ($selectedRowOffer) {
+                    $selectedCurrency = $getOfferCurrency($selectedRowOffer);
+                    $selectedUnitPrice = $getOfferUnitPrice($selectedRowOffer);
+                    $selectedLineTotal = $getOfferLineTotal($selectedRowOffer, $getItemQty($item));
 
-                    $rowFinalCurrency = $selectedRowOffer?->currency ?: 'IDR';
+                    if ($selectedUnitPrice !== null) {
+                    $rowDisplayUnitPrice = $selectedUnitPrice;
+                    $rowDisplayCurrency = $selectedCurrency;
+                    } elseif ($selectedLineTotal !== null && (float) $getItemQty($item) > 0) {
+                    $rowDisplayUnitPrice = $selectedLineTotal / (float) $getItemQty($item);
+                    $rowDisplayCurrency = $selectedCurrency;
+                    }
+
+                    if ($selectedLineTotal !== null) {
+                    $rowFinalTotal = $selectedLineTotal;
+                    $rowFinalCurrency = $selectedCurrency;
+                    }
+                    }
                     } else {
                     $rowBid1 = $bid1;
                     $rowBid2 = $bid2;
                     $rowBid3 = $bid3;
 
                     $selectedRowOffer = $selectedPrOffer;
-                    $rowFinalTotal = $lineTotal;
-                    $rowFinalCurrency = 'IDR';
                     }
+
+                    $rowBid1Selected = $isSameOffer($rowBid1, $selectedRowOffer);
+                    $rowBid2Selected = $isSameOffer($rowBid2, $selectedRowOffer);
+                    $rowBid3Selected = $isSameOffer($rowBid3, $selectedRowOffer);
                     @endphp
 
                     <tr>
-                        <td class="text-right">{{ $item ? $formatMoney($unitPrice) : '-' }}</td>
+                        <td class="text-right">{{ $item ? $formatMoney($rowDisplayUnitPrice, $rowDisplayCurrency) : '-' }}</td>
                         <td class="text-center">{{ $qty ?? '-' }}</td>
                         <td>
                             @if ($item)
@@ -604,39 +986,48 @@ return [
 
                         @if ($isPrVendorMode)
                         @if ($isFirstRow)
-                        <td class="text-center" rowspan="{{ $rowsToShow }}">
+                        <td class="text-center {{ $rowBid1Selected ? 'selected-vendor-cell' : '' }}" rowspan="{{ $rowsToShow }}">
                             @if ($rowBid1)
-                            <div style="font-weight: 700;">
+                            @if ($rowBid1Selected)
+                            <div class="selected-vendor-badge">Selected Vendor</div>
+                            @endif
+                            <div class="item-name {{ $rowBid1Selected ? 'selected-vendor-name' : '' }}">
                                 {{ $rowBid1->vendor?->name ?? $rowBid1->vendor_name ?? '-' }}
                             </div>
                             <div style="margin-top: 4px; font-size: 11px;">
-                                {{ $formatMoney($rowBid1->offer_total, $rowBid1->currency ?? 'IDR') }}
+                                {{ $formatMoney($getOfferLineTotal($rowBid1, 1), $getOfferCurrency($rowBid1)) }}
                             </div>
                             @else
                             -
                             @endif
                         </td>
 
-                        <td class="text-center" rowspan="{{ $rowsToShow }}">
+                        <td class="text-center {{ $rowBid2Selected ? 'selected-vendor-cell' : '' }}" rowspan="{{ $rowsToShow }}">
                             @if ($rowBid2)
-                            <div style="font-weight: 700;">
+                            @if ($rowBid2Selected)
+                            <div class="selected-vendor-badge">Selected Vendor</div>
+                            @endif
+                            <div class="item-name {{ $rowBid2Selected ? 'selected-vendor-name' : '' }}">
                                 {{ $rowBid2->vendor?->name ?? $rowBid2->vendor_name ?? '-' }}
                             </div>
                             <div style="margin-top: 4px; font-size: 11px;">
-                                {{ $formatMoney($rowBid2->offer_total, $rowBid2->currency ?? 'IDR') }}
+                                {{ $formatMoney($getOfferLineTotal($rowBid2, 1), $getOfferCurrency($rowBid2)) }}
                             </div>
                             @else
                             -
                             @endif
                         </td>
 
-                        <td class="text-center" rowspan="{{ $rowsToShow }}">
+                        <td class="text-center {{ $rowBid3Selected ? 'selected-vendor-cell' : '' }}" rowspan="{{ $rowsToShow }}">
                             @if ($rowBid3)
-                            <div style="font-weight: 700;">
+                            @if ($rowBid3Selected)
+                            <div class="selected-vendor-badge">Selected Vendor</div>
+                            @endif
+                            <div class="item-name {{ $rowBid3Selected ? 'selected-vendor-name' : '' }}">
                                 {{ $rowBid3->vendor?->name ?? $rowBid3->vendor_name ?? '-' }}
                             </div>
                             <div style="margin-top: 4px; font-size: 11px;">
-                                {{ $formatMoney($rowBid3->offer_total, $rowBid3->currency ?? 'IDR') }}
+                                {{ $formatMoney($getOfferLineTotal($rowBid3, 1), $getOfferCurrency($rowBid3)) }}
                             </div>
                             @else
                             -
@@ -644,39 +1035,48 @@ return [
                         </td>
                         @endif
                         @else
-                        <td class="text-center">
+                        <td class="text-center {{ $rowBid1Selected ? 'selected-vendor-cell' : '' }}">
                             @if ($rowBid1)
-                            <div style="font-weight: 700;">
+                            @if ($rowBid1Selected)
+                            <div class="selected-vendor-badge">Selected Vendor</div>
+                            @endif
+                            <div class="item-name {{ $rowBid1Selected ? 'selected-vendor-name' : '' }}">
                                 {{ $rowBid1->vendor?->name ?? $rowBid1->vendor_name ?? '-' }}
                             </div>
                             <div style="margin-top: 4px; font-size: 11px;">
-                                {{ $formatMoney($rowBid1->offer_total, $rowBid1->currency ?? 'IDR') }}
+                                {{ $formatMoney($getOfferLineTotal($rowBid1, $qty ?: 1), $getOfferCurrency($rowBid1)) }}
                             </div>
                             @else
                             -
                             @endif
                         </td>
 
-                        <td class="text-center">
+                        <td class="text-center {{ $rowBid2Selected ? 'selected-vendor-cell' : '' }}">
                             @if ($rowBid2)
-                            <div style="font-weight: 700;">
+                            @if ($rowBid2Selected)
+                            <div class="selected-vendor-badge">Selected Vendor</div>
+                            @endif
+                            <div class="item-name {{ $rowBid2Selected ? 'selected-vendor-name' : '' }}">
                                 {{ $rowBid2->vendor?->name ?? $rowBid2->vendor_name ?? '-' }}
                             </div>
                             <div style="margin-top: 4px; font-size: 11px;">
-                                {{ $formatMoney($rowBid2->offer_total, $rowBid2->currency ?? 'IDR') }}
+                                {{ $formatMoney($getOfferLineTotal($rowBid2, $qty ?: 1), $getOfferCurrency($rowBid2)) }}
                             </div>
                             @else
                             -
                             @endif
                         </td>
 
-                        <td class="text-center">
+                        <td class="text-center {{ $rowBid3Selected ? 'selected-vendor-cell' : '' }}">
                             @if ($rowBid3)
-                            <div style="font-weight: 700;">
+                            @if ($rowBid3Selected)
+                            <div class="selected-vendor-badge">Selected Vendor</div>
+                            @endif
+                            <div class="item-name {{ $rowBid3Selected ? 'selected-vendor-name' : '' }}">
                                 {{ $rowBid3->vendor?->name ?? $rowBid3->vendor_name ?? '-' }}
                             </div>
                             <div style="margin-top: 4px; font-size: 11px;">
-                                {{ $formatMoney($rowBid3->offer_total, $rowBid3->currency ?? 'IDR') }}
+                                {{ $formatMoney($getOfferLineTotal($rowBid3, $qty ?: 1), $getOfferCurrency($rowBid3)) }}
                             </div>
                             @else
                             -
@@ -704,7 +1104,7 @@ return [
                 <table>
                     <tr>
                         <td class="left-label">Total Amount</td>
-                        <td>{{ $formatMoney($displayTotalAmount, $selectedOffer?->currency ?? 'IDR') }}</td>
+                        <td class="total-amount-value">{{ $formatMoney($displayTotalAmount, $displayCurrency) }}</td>
                     </tr>
                 </table>
             </div>
@@ -743,7 +1143,6 @@ return [
             <div class="photos-body">
                 @php
                 $imageExtensions = ['jpg', 'jpeg', 'png', 'webp', 'gif'];
-                $vendorMode = $purchaseRequest->vendor_comparison_mode ?? 'item';
                 @endphp
 
                 @if ($vendorMode === 'pr')
@@ -798,7 +1197,7 @@ return [
                 @endif
                 @else
                 @php
-                $itemsWithVendorFiles = $purchaseRequest->items
+                $itemsWithVendorFiles = $items
                 ->map(function ($item) {
                 $offers = collect($item->vendorOffers ?? [])
                 ->sortBy([
@@ -868,33 +1267,53 @@ return [
             <div class="sign-box">
                 <div class="sign-title">
                     Purchasing Mgr
-                    <div class="sign-name">-</div>
+                    <div class="sign-status">
+                        {{ $purchasingApproval ? 'Approved' : '-' }}
+                    </div>
                 </div>
-                <div class="sign-date">Date</div>
+                <div class="sign-date">
+                    Date
+                    <div class="sign-date-value">{{ $approvalDate($purchasingApproval) }}</div>
+                </div>
             </div>
 
             <div class="sign-box">
                 <div class="sign-title">
                     Cost Controller
-                    <div class="sign-name">-</div>
+                    <div class="sign-status">
+                        {{ $accountingApproval ? 'Approved' : '-' }}
+                    </div>
                 </div>
-                <div class="sign-date">Date</div>
+                <div class="sign-date">
+                    Date
+                    <div class="sign-date-value">{{ $approvalDate($accountingApproval) }}</div>
+                </div>
             </div>
 
             <div class="sign-box">
                 <div class="sign-title">
                     GM
-                    <div class="sign-name">-</div>
+                    <div class="sign-status">
+                        {{ $gmApproval ? 'Approved' : '-' }}
+                    </div>
                 </div>
-                <div class="sign-date">Date</div>
+                <div class="sign-date">
+                    Date
+                    <div class="sign-date-value">{{ $approvalDate($gmApproval) }}</div>
+                </div>
             </div>
 
             <div class="sign-box">
                 <div class="sign-title">
                     Financial Controller
-                    <div class="sign-name">-</div>
+                    <div class="sign-status">
+                        {{ $financialControllerApproval ? 'Approved' : '-' }}
+                    </div>
                 </div>
-                <div class="sign-date">Date</div>
+                <div class="sign-date">
+                    Date
+                    <div class="sign-date-value">{{ $approvalDate($financialControllerApproval) }}</div>
+                </div>
             </div>
         </div>
     </div>

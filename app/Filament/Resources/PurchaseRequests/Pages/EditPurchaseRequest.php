@@ -357,7 +357,7 @@ class EditPurchaseRequest extends EditRecord
                 ->requiresConfirmation()
                 ->visible(fn() => $this->canGmApprove())
                 ->action(function () {
-                    $this->record->status = 'approved';
+                    $this->record->status = 'gm_approved';
                     $this->record->approved_at = now();
                     $this->record->save();
 
@@ -365,15 +365,15 @@ class EditPurchaseRequest extends EditRecord
 
                     $this->record->logs()->create([
                         'user_id' => Auth::id(),
-                        'action' => 'approved',
-                        'message' => 'Purchase request approved by GM.',
+                        'action' => 'gm_approved',
+                        'message' => 'Purchase request approved by GM and handed over to Financial Controller.',
                     ]);
 
-                    $this->sendApprovedEmailToEveryone($this->record);
+                    $this->sendSubmittedEmailToFinancialController($this->record, 'gm_approved');
 
                     Notification::make()
                         ->success()
-                        ->title('Purchase request approved.')
+                        ->title('Purchase request approved by GM and handed over to Financial Controller.')
                         ->send();
 
                     $this->refreshFormData([
@@ -547,6 +547,173 @@ class EditPurchaseRequest extends EditRecord
                 ->color('gray')
                 ->icon('heroicon-m-ellipsis-horizontal')
                 ->visible(fn() => $this->canGmReturn()),
+
+            ActionGroup::make([
+                Action::make('markWaitingPaymentByFc')
+                    ->label('Mark Waiting Payment')
+                    ->icon('heroicon-m-clock')
+                    ->color('warning')
+                    ->requiresConfirmation()
+                    ->visible(fn() => $this->canFinancialControllerUpdate())
+                    ->action(function () {
+                        $this->record->status = 'waiting_payment_by_fc';
+                        $this->record->save();
+
+                        $this->record->markActivity();
+
+                        $this->record->logs()->create([
+                            'user_id' => Auth::id(),
+                            'action' => 'waiting_payment_by_fc',
+                            'message' => 'Purchase request marked as waiting for payment by Financial Controller.',
+                        ]);
+
+                        Notification::make()
+                            ->success()
+                            ->title('Purchase request marked as waiting for payment.')
+                            ->send();
+
+                        $this->refreshFormData([
+                            'status',
+                            'current_status_at',
+                            'last_activity_at',
+                            'last_reminder_sent_at',
+                        ]);
+                    }),
+
+                Action::make('markPaidToVendorByFc')
+                    ->label('Mark Paid to Vendor')
+                    ->icon('heroicon-m-banknotes')
+                    ->color('success')
+                    ->requiresConfirmation()
+                    ->visible(fn() => $this->canFinancialControllerUpdate())
+                    ->action(function () {
+                        $this->record->status = 'paid_to_vendor_by_fc';
+                        $this->record->save();
+
+                        $this->record->markActivity();
+
+                        $this->record->logs()->create([
+                            'user_id' => Auth::id(),
+                            'action' => 'paid_to_vendor_by_fc',
+                            'message' => 'Purchase request marked as paid to vendor by Financial Controller.',
+                        ]);
+
+                        Notification::make()
+                            ->success()
+                            ->title('Purchase request marked as paid to vendor.')
+                            ->send();
+
+                        $this->refreshFormData([
+                            'status',
+                            'current_status_at',
+                            'last_activity_at',
+                            'last_reminder_sent_at',
+                        ]);
+                    }),
+
+                Action::make('markItemArrivedByFc')
+                    ->label('Mark Item Arrived')
+                    ->icon('heroicon-m-truck')
+                    ->color('info')
+                    ->requiresConfirmation()
+                    ->visible(fn() => $this->canFinancialControllerUpdate())
+                    ->action(function () {
+                        $this->record->status = 'item_arrived_by_fc';
+                        $this->record->save();
+
+                        $this->record->markActivity();
+
+                        $this->record->logs()->create([
+                            'user_id' => Auth::id(),
+                            'action' => 'item_arrived_by_fc',
+                            'message' => 'Purchase request marked as item arrived by Financial Controller.',
+                        ]);
+
+                        Notification::make()
+                            ->success()
+                            ->title('Purchase request marked as item arrived.')
+                            ->send();
+
+                        $this->refreshFormData([
+                            'status',
+                            'current_status_at',
+                            'last_activity_at',
+                            'last_reminder_sent_at',
+                        ]);
+                    }),
+
+                Action::make('markReceivedByRequesterByFc')
+                    ->label('Mark Received by Requester')
+                    ->icon('heroicon-m-check-badge')
+                    ->color('success')
+                    ->requiresConfirmation()
+                    ->visible(fn() => $this->canFinancialControllerUpdate())
+                    ->action(function () {
+                        $this->record->status = 'received_by_requester_by_fc';
+                        $this->record->save();
+
+                        $this->record->markActivity();
+
+                        $this->record->logs()->create([
+                            'user_id' => Auth::id(),
+                            'action' => 'received_by_requester_by_fc',
+                            'message' => 'Purchase request marked as received by requester by Financial Controller.',
+                        ]);
+
+                        Notification::make()
+                            ->success()
+                            ->title('Purchase request marked as received by requester.')
+                            ->send();
+
+                        $this->refreshFormData([
+                            'status',
+                            'current_status_at',
+                            'last_activity_at',
+                            'last_reminder_sent_at',
+                        ]);
+                    }),
+
+                Action::make('holdByFinancialController')
+                    ->label('Hold')
+                    ->icon('heroicon-m-pause-circle')
+                    ->color('gray')
+                    ->visible(fn() => $this->canFinancialControllerUpdate())
+                    ->form([
+                        Textarea::make('message')
+                            ->label('Hold Message')
+                            ->required()
+                            ->rows(4),
+                    ])
+                    ->action(function (array $data) {
+                        $this->record->status = 'on_hold_by_fc';
+                        $this->record->save();
+
+                        $this->record->markActivity();
+
+                        $this->record->logs()->create([
+                            'user_id' => Auth::id(),
+                            'action' => 'on_hold_by_fc',
+                            'message' => $data['message'],
+                        ]);
+
+                        Notification::make()
+                            ->success()
+                            ->title('Purchase request placed on hold by Financial Controller.')
+                            ->send();
+
+                        $this->refreshFormData([
+                            'status',
+                            'current_status_at',
+                            'last_activity_at',
+                            'last_reminder_sent_at',
+                        ]);
+                    }),
+            ])
+                ->label('Financial Controller Actions')
+                ->button()
+                ->color('gray')
+                ->icon('heroicon-m-ellipsis-horizontal')
+                ->visible(fn() => $this->canFinancialControllerUpdate()),
         ];
     }
 
@@ -618,9 +785,18 @@ class EditPurchaseRequest extends EditRecord
 
     protected function syncVendorsToMasterCatalog(): void
     {
-        $this->record->load('vendorOffers');
+        $this->record->load([
+            'vendorOffers',
+            'items.vendorOffers',
+        ]);
 
-        foreach ($this->record->vendorOffers as $vendorOffer) {
+        $syncVendorOffer = function ($vendorOffer): void {
+            if (! $vendorOffer) {
+                return;
+            }
+
+            $vendorName = trim((string) $vendorOffer->vendor_name);
+
             if ($vendorOffer->vendor_id) {
                 $existingVendor = Vendor::find($vendorOffer->vendor_id);
 
@@ -629,16 +805,20 @@ class EditPurchaseRequest extends EditRecord
                         'contact_person' => $vendorOffer->contact_person ?: $existingVendor->contact_person,
                         'phone' => $vendorOffer->phone ?: $existingVendor->phone,
                         'email' => $vendorOffer->email ?: $existingVendor->email,
+                        'is_active' => true,
                     ]);
-                }
 
-                continue;
+                    $vendorOffer->update([
+                        'vendor_id' => $existingVendor->id,
+                        'vendor_name' => $existingVendor->name,
+                    ]);
+
+                    return;
+                }
             }
 
-            $vendorName = trim((string) $vendorOffer->vendor_name);
-
             if ($vendorName === '') {
-                continue;
+                return;
             }
 
             $vendor = Vendor::firstOrCreate(
@@ -665,11 +845,26 @@ class EditPurchaseRequest extends EditRecord
                 $vendor->email = $vendorOffer->email;
             }
 
+            if (! $vendor->is_active) {
+                $vendor->is_active = true;
+            }
+
             $vendor->save();
 
             $vendorOffer->update([
                 'vendor_id' => $vendor->id,
+                'vendor_name' => $vendor->name,
             ]);
+        };
+
+        foreach ($this->record->vendorOffers as $vendorOffer) {
+            $syncVendorOffer($vendorOffer);
+        }
+
+        foreach ($this->record->items as $purchaseRequestItem) {
+            foreach ($purchaseRequestItem->vendorOffers as $vendorOffer) {
+                $syncVendorOffer($vendorOffer);
+            }
         }
     }
 
@@ -702,6 +897,19 @@ class EditPurchaseRequest extends EditRecord
     protected function sendSubmittedEmailToGm(PurchaseRequest $purchaseRequest, string $fromStatus = 'submitted_to_gm'): void
     {
         $emails = config('mail.gm_notification_emails', []);
+
+        if (empty($emails)) {
+            return;
+        }
+
+        Mail::to($emails)->send(
+            new PurchaseRequestSubmittedNotification($purchaseRequest, $fromStatus)
+        );
+    }
+
+    protected function sendSubmittedEmailToFinancialController(PurchaseRequest $purchaseRequest, string $fromStatus = 'gm_approved'): void
+    {
+        $emails = config('mail.financial_controller_notification_emails', config('mail.accounting_notification_emails', []));
 
         if (empty($emails)) {
             return;
@@ -788,6 +996,32 @@ class EditPurchaseRequest extends EditRecord
         return $user instanceof User ? $user : null;
     }
 
+    protected function getUserRole(?User $user): string
+    {
+        return strtolower(trim((string) ($user?->role ?? '')));
+    }
+
+    protected function isFinancialControllerUser(?User $user): bool
+    {
+        $role = $this->getUserRole($user);
+
+        if (in_array($role, [
+            'financial_controller',
+            'financial-controller',
+            'financial controller',
+            'fc',
+            'cost_controller',
+            'cost-controller',
+            'cost controller',
+        ], true)) {
+            return true;
+        }
+
+        return $user instanceof User
+            && method_exists($user, 'isFinancialController')
+            && $user->isFinancialController();
+    }
+
     protected function canRequesterSubmit(): bool
     {
         $user = $this->getCurrentUser();
@@ -817,6 +1051,12 @@ class EditPurchaseRequest extends EditRecord
         if ($user->isAdmin()) {
             return ! in_array($this->record->status, [
                 'approved',
+                'gm_approved',
+                'waiting_payment_by_fc',
+                'paid_to_vendor_by_fc',
+                'item_arrived_by_fc',
+                'received_by_requester_by_fc',
+                'on_hold_by_fc',
                 'rejected',
                 'cancelled',
             ], true);
@@ -935,6 +1175,37 @@ class EditPurchaseRequest extends EditRecord
         return in_array($this->record->status, [
             'submitted_to_gm',
             'on_hold_by_gm',
+        ], true);
+    }
+
+    protected function canFinancialControllerUpdate(): bool
+    {
+        $user = $this->getCurrentUser();
+
+        if (! $user) {
+            return false;
+        }
+
+        if ($user->isAdmin()) {
+            return in_array($this->record->status, [
+                'gm_approved',
+                'waiting_payment_by_fc',
+                'paid_to_vendor_by_fc',
+                'item_arrived_by_fc',
+                'on_hold_by_fc',
+            ], true);
+        }
+
+        if (! ($this->isFinancialControllerUser($user) || $user->isAccounting())) {
+            return false;
+        }
+
+        return in_array($this->record->status, [
+            'gm_approved',
+            'waiting_payment_by_fc',
+            'paid_to_vendor_by_fc',
+            'item_arrived_by_fc',
+            'on_hold_by_fc',
         ], true);
     }
 

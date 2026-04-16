@@ -8,6 +8,8 @@ use App\Models\User;
 use App\Models\Vendor;
 use Filament\Forms\Components\DatePicker;
 use Filament\Forms\Components\FileUpload;
+use Filament\Forms\Components\Hidden;
+use Filament\Forms\Components\Radio;
 use Filament\Forms\Components\Repeater;
 use Filament\Forms\Components\RichEditor;
 use Filament\Forms\Components\Select;
@@ -17,6 +19,7 @@ use Filament\Schemas\Components\Section;
 use Filament\Schemas\Components\Utilities\Get;
 use Filament\Schemas\Schema;
 use Illuminate\Support\Facades\Auth;
+use Illuminate\Support\Str;
 
 class PurchaseRequestForm
 {
@@ -45,6 +48,16 @@ class PurchaseRequestForm
     protected static function isAdminUser(): bool
     {
         return static::getCurrentUser()?->isAdmin() ?? false;
+    }
+
+    protected static function isGmUser(): bool
+    {
+        return static::getCurrentUser()?->isGm() ?? false;
+    }
+
+    protected static function canSelectFinalVendor(): bool
+    {
+        return static::isAccountingUser();
     }
 
     protected static function getCurrentDepartmentName(): ?string
@@ -160,6 +173,84 @@ class PurchaseRequestForm
         return false;
     }
 
+    protected static function getVendorOfferSelectionKey(array $offer, int|string $index): string
+    {
+        $id = $offer['id'] ?? null;
+
+        if (filled($id)) {
+            return 'id_' . $id;
+        }
+
+        return 'row_' . $index;
+    }
+
+    protected static function getVendorOfferItemLabel(array $state): ?string
+    {
+        $vendorName = trim((string) ($state['vendor_name'] ?? ''));
+        $currency = trim((string) ($state['currency'] ?? 'IDR'));
+        $offerTotal = $state['offer_total'] ?? null;
+
+        $label = $vendorName !== '' ? $vendorName : 'New Vendor Offer';
+
+        if ($offerTotal !== null && $offerTotal !== '') {
+            $formattedTotal = number_format((float) $offerTotal, 0, ',', '.');
+            $label .= ' - ' . $currency . ' ' . $formattedTotal;
+        }
+
+        if ((bool) ($state['is_selected_by_accounting'] ?? false)) {
+            $label = 'Selected Vendor - ' . $label;
+        }
+
+        return $label;
+    }
+
+    protected static function buildVendorSelectionOptions(array $offers): array
+    {
+        return collect($offers)
+            ->values()
+            ->mapWithKeys(function (array $offer, int $index): array {
+                $key = static::getVendorOfferSelectionKey($offer, $index);
+
+                $vendorName = trim((string) ($offer['vendor_name'] ?? ''));
+                $currency = trim((string) ($offer['currency'] ?? 'IDR'));
+                $offerTotal = $offer['offer_total'] ?? null;
+
+                $label = $vendorName !== '' ? $vendorName : 'Vendor ' . ($index + 1);
+
+                if ($offerTotal !== null && $offerTotal !== '') {
+                    $label .= ' - ' . $currency . ' ' . number_format((float) $offerTotal, 0, ',', '.');
+                }
+
+                return [$key => $label];
+            })
+            ->toArray();
+    }
+
+    protected static function getSelectedVendorSelectionKey(array $offers): ?string
+    {
+        foreach (collect($offers)->values() as $index => $offer) {
+            if ((bool) ($offer['is_selected_by_accounting'] ?? false)) {
+                return static::getVendorOfferSelectionKey($offer, $index);
+            }
+        }
+
+        return null;
+    }
+
+    protected static function syncSelectedVendorFlags(array $offers, ?string $selectedKey): array
+    {
+        return collect($offers)
+            ->values()
+            ->map(function (array $offer, int $index) use ($selectedKey): array {
+                $offer['is_selected_by_accounting'] = filled($selectedKey)
+                    && static::getVendorOfferSelectionKey($offer, $index) === $selectedKey;
+
+                return $offer;
+            })
+            ->values()
+            ->all();
+    }
+
     protected static function vendorOfferSchema(): array
     {
         return [
@@ -251,6 +342,9 @@ class PurchaseRequestForm
                 ->downloadable()
                 ->openable()
                 ->columnSpanFull(),
+
+            Hidden::make('is_selected_by_accounting')
+                ->default(false),
         ];
     }
 
@@ -356,7 +450,7 @@ class PurchaseRequestForm
                             return 'New Item';
                         }
 
-                        return \Illuminate\Support\Str::limit($itemName, 60);
+                        return Str::limit($itemName, 60);
                     })
                     ->schema([
                         Select::make('item_id')
@@ -457,7 +551,7 @@ class PurchaseRequestForm
                                 $photoName = trim((string) ($state['file_name'] ?? ''));
 
                                 if ($photoName !== '') {
-                                    return \Illuminate\Support\Str::limit($photoName, 40);
+                                    return Str::limit($photoName, 40);
                                 }
 
                                 return 'Photo ' . $photoIndex;
@@ -483,20 +577,7 @@ class PurchaseRequestForm
                                     ->collapsible()
                                     ->collapsed()
                                     ->cloneable()
-                                    ->itemLabel(function (array $state): ?string {
-                                        $vendorName = trim((string) ($state['vendor_name'] ?? ''));
-                                        $currency = trim((string) ($state['currency'] ?? 'IDR'));
-                                        $offerTotal = $state['offer_total'] ?? null;
-
-                                        $label = $vendorName !== '' ? $vendorName : 'New Vendor Offer';
-
-                                        if ($offerTotal !== null && $offerTotal !== '') {
-                                            $formattedTotal = number_format((float) $offerTotal, 0, ',', '.');
-                                            $label .= ' - ' . $currency . ' ' . $formattedTotal;
-                                        }
-
-                                        return $label;
-                                    })
+                                    ->itemLabel(fn(array $state): ?string => static::getVendorOfferItemLabel($state))
                                     ->schema(static::vendorOfferSchema())
                                     ->columns(3)
                                     ->columnSpanFull()
@@ -508,6 +589,34 @@ class PurchaseRequestForm
                                         return (($get('../../vendor_comparison_mode') ?? $purchaseRequest?->vendor_comparison_mode ?? 'pr') === 'item')
                                             && static::canShowVendorOffers($purchaseRequest);
                                     }),
+
+                                Radio::make('selected_vendor_choice')
+                                    ->label('Final Vendor Selection')
+                                    ->helperText('Cost Control can select one vendor only. The other offers stay visible for comparison.')
+                                    ->dehydrated(false)
+                                    ->live()
+                                    ->inline(false)
+                                    ->options(fn(Get $get): array => static::buildVendorSelectionOptions($get('vendorOffers') ?? []))
+                                    ->default(fn(Get $get): ?string => static::getSelectedVendorSelectionKey($get('vendorOffers') ?? []))
+                                    ->formatStateUsing(fn($state, Get $get): ?string => filled($state)
+                                        ? $state
+                                        : static::getSelectedVendorSelectionKey($get('vendorOffers') ?? []))
+                                    ->afterStateUpdated(function ($state, Get $get, callable $set): void {
+                                        $offers = $get('vendorOffers') ?? [];
+
+                                        $set('vendorOffers', static::syncSelectedVendorFlags($offers, $state));
+                                    })
+                                    ->visible(function (Get $get, \Livewire\Component $livewire): bool {
+                                        $purchaseRequest = method_exists($livewire, 'getRecord')
+                                            ? $livewire->getRecord()
+                                            : null;
+
+                                        return (($get('../../vendor_comparison_mode') ?? $purchaseRequest?->vendor_comparison_mode ?? 'pr') === 'item')
+                                            && static::canShowVendorOffers($purchaseRequest)
+                                            && static::canSelectFinalVendor()
+                                            && count($get('vendorOffers') ?? []) > 0;
+                                    })
+                                    ->columnSpanFull(),
                             ])
                             ->compact()
                             ->extraAttributes([
@@ -529,8 +638,33 @@ class PurchaseRequestForm
                             ->reorderable()
                             ->collapsible()
                             ->cloneable()
+                            ->itemLabel(fn(array $state): ?string => static::getVendorOfferItemLabel($state))
                             ->schema(static::vendorOfferSchema())
                             ->columns(2)
+                            ->columnSpanFull(),
+
+                        Radio::make('selected_vendor_choice')
+                            ->label('Final Vendor Selection')
+                            ->helperText('Cost Control can select one vendor only. The other offers stay visible for comparison.')
+                            ->dehydrated(false)
+                            ->live()
+                            ->inline(false)
+                            ->options(fn(Get $get): array => static::buildVendorSelectionOptions($get('vendorOffers') ?? []))
+                            ->default(fn(Get $get): ?string => static::getSelectedVendorSelectionKey($get('vendorOffers') ?? []))
+                            ->formatStateUsing(fn($state, Get $get): ?string => filled($state)
+                                ? $state
+                                : static::getSelectedVendorSelectionKey($get('vendorOffers') ?? []))
+                            ->afterStateUpdated(function ($state, Get $get, callable $set): void {
+                                $offers = $get('vendorOffers') ?? [];
+
+                                $set('vendorOffers', static::syncSelectedVendorFlags($offers, $state));
+                            })
+                            ->visible(function (?PurchaseRequest $record, Get $get): bool {
+                                return (($get('vendor_comparison_mode') ?? $record?->vendor_comparison_mode ?? 'pr') === 'pr')
+                                    && static::canShowVendorOffers($record)
+                                    && static::canSelectFinalVendor()
+                                    && count($get('vendorOffers') ?? []) > 0;
+                            })
                             ->columnSpanFull(),
                     ])
                     ->visible(fn(?PurchaseRequest $record, Get $get): bool => (

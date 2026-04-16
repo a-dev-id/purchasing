@@ -148,6 +148,27 @@ class PurchaseRequestResource extends Resource
             && $user->isGm();
     }
 
+    protected static function isFinancialControllerUser(?User $user): bool
+    {
+        $role = static::getUserRole($user);
+
+        if (in_array($role, [
+            'financial_controller',
+            'financial-controller',
+            'financial controller',
+            'fc',
+            'cost_controller',
+            'cost-controller',
+            'cost controller',
+        ], true)) {
+            return true;
+        }
+
+        return $user instanceof User
+            && method_exists($user, 'isFinancialController')
+            && $user->isFinancialController();
+    }
+
     protected static function canSeeAllUserPurchaseRequests(?User $user): bool
     {
         return static::isAdminUser($user) || static::isOwnerUser($user);
@@ -169,6 +190,12 @@ class PurchaseRequestResource extends Resource
             'revision_to_accounting_from_gm',
             'revision_to_requester_from_gm',
             'on_hold_by_gm',
+            'gm_approved',
+            'waiting_payment_by_fc',
+            'paid_to_vendor_by_fc',
+            'item_arrived_by_fc',
+            'received_by_requester_by_fc',
+            'on_hold_by_fc',
             'approved',
             'rejected',
             'cancelled',
@@ -189,6 +216,12 @@ class PurchaseRequestResource extends Resource
             'revision_to_accounting_from_gm',
             'revision_to_requester_from_gm',
             'on_hold_by_gm',
+            'gm_approved',
+            'waiting_payment_by_fc',
+            'paid_to_vendor_by_fc',
+            'item_arrived_by_fc',
+            'received_by_requester_by_fc',
+            'on_hold_by_fc',
             'approved',
             'rejected',
             'cancelled',
@@ -204,6 +237,27 @@ class PurchaseRequestResource extends Resource
             'revision_to_purchasing_from_gm',
             'revision_to_accounting_from_gm',
             'revision_to_requester_from_gm',
+            'gm_approved',
+            'waiting_payment_by_fc',
+            'paid_to_vendor_by_fc',
+            'item_arrived_by_fc',
+            'received_by_requester_by_fc',
+            'on_hold_by_fc',
+            'approved',
+            'rejected',
+            'cancelled',
+        ];
+    }
+
+    protected static function financialControllerVisibleStatuses(): array
+    {
+        return [
+            'gm_approved',
+            'waiting_payment_by_fc',
+            'paid_to_vendor_by_fc',
+            'item_arrived_by_fc',
+            'received_by_requester_by_fc',
+            'on_hold_by_fc',
             'approved',
             'rejected',
             'cancelled',
@@ -238,6 +292,10 @@ class PurchaseRequestResource extends Resource
 
         if (static::isGmUser($user)) {
             return $query->whereIn('status', static::gmVisibleStatuses());
+        }
+
+        if (static::isFinancialControllerUser($user)) {
+            return $query->whereIn('status', static::financialControllerVisibleStatuses());
         }
 
         return $query->whereRaw('1 = 0');
@@ -295,6 +353,10 @@ class PurchaseRequestResource extends Resource
             return in_array($record->status, static::gmVisibleStatuses(), true);
         }
 
+        if (static::isFinancialControllerUser($user)) {
+            return in_array($record->status, static::financialControllerVisibleStatuses(), true);
+        }
+
         return false;
     }
 
@@ -323,6 +385,11 @@ class PurchaseRequestResource extends Resource
                 'submitted_to_accounting',
                 'on_hold_by_accounting',
                 'revision_to_accounting_from_gm',
+                'gm_approved',
+                'waiting_payment_by_fc',
+                'paid_to_vendor_by_fc',
+                'item_arrived_by_fc',
+                'on_hold_by_fc',
             ], true);
         }
 
@@ -330,6 +397,16 @@ class PurchaseRequestResource extends Resource
             return in_array($record->status, [
                 'submitted_to_gm',
                 'on_hold_by_gm',
+            ], true);
+        }
+
+        if (static::isFinancialControllerUser($user)) {
+            return in_array($record->status, [
+                'gm_approved',
+                'waiting_payment_by_fc',
+                'paid_to_vendor_by_fc',
+                'item_arrived_by_fc',
+                'on_hold_by_fc',
             ], true);
         }
 

@@ -68,17 +68,40 @@ class CreatePurchaseRequest extends CreateRecord
 
     protected function syncVendorsToMasterCatalog(): void
     {
-        $this->record->load('vendorOffers');
+        $this->record->load([
+            'vendorOffers',
+            'items.vendorOffers',
+        ]);
 
-        foreach ($this->record->vendorOffers as $vendorOffer) {
-            if ($vendorOffer->vendor_id) {
-                continue;
+        $syncVendorOffer = function ($vendorOffer): void {
+            if (! $vendorOffer) {
+                return;
             }
 
             $vendorName = trim((string) $vendorOffer->vendor_name);
 
+            if ($vendorOffer->vendor_id) {
+                $existingVendor = Vendor::find($vendorOffer->vendor_id);
+
+                if ($existingVendor) {
+                    $existingVendor->update([
+                        'contact_person' => $vendorOffer->contact_person ?: $existingVendor->contact_person,
+                        'phone' => $vendorOffer->phone ?: $existingVendor->phone,
+                        'email' => $vendorOffer->email ?: $existingVendor->email,
+                        'is_active' => true,
+                    ]);
+
+                    $vendorOffer->update([
+                        'vendor_id' => $existingVendor->id,
+                        'vendor_name' => $existingVendor->name,
+                    ]);
+
+                    return;
+                }
+            }
+
             if ($vendorName === '') {
-                continue;
+                return;
             }
 
             $vendor = Vendor::firstOrCreate(
@@ -93,9 +116,38 @@ class CreatePurchaseRequest extends CreateRecord
                 ]
             );
 
+            if (! $vendor->contact_person && $vendorOffer->contact_person) {
+                $vendor->contact_person = $vendorOffer->contact_person;
+            }
+
+            if (! $vendor->phone && $vendorOffer->phone) {
+                $vendor->phone = $vendorOffer->phone;
+            }
+
+            if (! $vendor->email && $vendorOffer->email) {
+                $vendor->email = $vendorOffer->email;
+            }
+
+            if (! $vendor->is_active) {
+                $vendor->is_active = true;
+            }
+
+            $vendor->save();
+
             $vendorOffer->update([
                 'vendor_id' => $vendor->id,
+                'vendor_name' => $vendor->name,
             ]);
+        };
+
+        foreach ($this->record->vendorOffers as $vendorOffer) {
+            $syncVendorOffer($vendorOffer);
+        }
+
+        foreach ($this->record->items as $purchaseRequestItem) {
+            foreach ($purchaseRequestItem->vendorOffers as $vendorOffer) {
+                $syncVendorOffer($vendorOffer);
+            }
         }
     }
 

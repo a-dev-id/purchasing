@@ -78,6 +78,12 @@ class PurchaseRequestsTable
                         'revision_to_accounting_from_gm' => 'Back to Accounting',
                         'revision_to_requester_from_gm' => 'Back to Requester',
                         'on_hold_by_gm' => 'Hold GM',
+                        'gm_approved' => 'GM Approved',
+                        'waiting_payment_by_fc' => 'Waiting Payment',
+                        'paid_to_vendor_by_fc' => 'Paid to Vendor',
+                        'item_arrived_by_fc' => 'Item Arrived',
+                        'received_by_requester_by_fc' => 'Received by Requester',
+                        'on_hold_by_fc' => 'Hold FC',
                         'approved' => 'Approved',
                         'rejected' => 'Rejected',
                         'cancelled' => 'Cancelled',
@@ -86,12 +92,15 @@ class PurchaseRequestsTable
                     })
                     ->color(fn(?string $state): string => match ($state) {
                         'draft' => 'gray',
+
                         'submitted',
                         'submitted_to_accounting',
                         'submitted_to_gm',
                         'revision_to_purchasing_from_accounting',
                         'revision_to_purchasing_from_gm',
-                        'revision_to_accounting_from_gm' => 'warning',
+                        'revision_to_accounting_from_gm',
+                        'waiting_payment_by_fc' => 'warning',
+
                         'revision_from_purchasing',
                         'revision_from_accounting',
                         'revision_from_gm',
@@ -99,9 +108,17 @@ class PurchaseRequestsTable
                         'revision_to_requester_from_gm',
                         'rejected',
                         'cancelled' => 'danger',
+
                         'on_hold_by_accounting',
-                        'on_hold_by_gm' => 'gray',
+                        'on_hold_by_gm',
+                        'on_hold_by_fc' => 'gray',
+
+                        'gm_approved',
+                        'paid_to_vendor_by_fc',
+                        'item_arrived_by_fc',
+                        'received_by_requester_by_fc',
                         'approved' => 'success',
+
                         default => 'gray',
                     })
                     ->toggleable(),
@@ -124,6 +141,12 @@ class PurchaseRequestsTable
                         'revision_to_accounting_from_gm' => 'Accounting',
                         'revision_to_requester_from_gm' => 'Requester',
                         'on_hold_by_gm' => 'GM',
+                        'gm_approved' => 'Financial Controller',
+                        'waiting_payment_by_fc' => 'Financial Controller',
+                        'paid_to_vendor_by_fc' => 'Financial Controller',
+                        'item_arrived_by_fc' => 'Financial Controller',
+                        'received_by_requester_by_fc' => 'Done',
+                        'on_hold_by_fc' => 'Financial Controller',
                         'approved' => 'Done',
                         'rejected' => 'Stopped',
                         'cancelled' => 'Cancelled',
@@ -134,6 +157,7 @@ class PurchaseRequestsTable
                         'Purchasing' => 'warning',
                         'Accounting' => 'info',
                         'GM' => 'danger',
+                        'Financial Controller' => 'success',
                         'Done' => 'success',
                         'Stopped' => 'danger',
                         'Cancelled' => 'danger',
@@ -178,7 +202,15 @@ class PurchaseRequestsTable
 
                 ViewAction::make()
                     ->label('View')
-                    ->visible(fn(PurchaseRequest $record): bool => $record->status === 'approved'),
+                    ->visible(fn(PurchaseRequest $record): bool => in_array($record->status, [
+                        'gm_approved',
+                        'waiting_payment_by_fc',
+                        'paid_to_vendor_by_fc',
+                        'item_arrived_by_fc',
+                        'received_by_requester_by_fc',
+                        'on_hold_by_fc',
+                        'approved',
+                    ], true)),
 
                 EditAction::make()
                     ->visible(fn(PurchaseRequest $record): bool => PurchaseRequestResource::canEdit($record)),
