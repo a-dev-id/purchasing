@@ -35,13 +35,11 @@ class CreatePurchaseRequest extends CreateRecord
 
     protected function syncItemsToMasterCatalog(): void
     {
-        $this->record->load('items');
+        $this->record->load([
+            'items.photos',
+        ]);
 
         foreach ($this->record->items as $purchaseRequestItem) {
-            if ($purchaseRequestItem->item_id) {
-                continue;
-            }
-
             $itemName = trim((string) $purchaseRequestItem->item_name);
 
             if ($itemName === '') {
@@ -60,9 +58,52 @@ class CreatePurchaseRequest extends CreateRecord
                 ]
             );
 
-            $purchaseRequestItem->update([
-                'item_id' => $item->id,
-            ]);
+            $itemUpdates = [];
+
+            if (blank($item->default_unit) && filled($purchaseRequestItem->unit)) {
+                $itemUpdates['default_unit'] = $purchaseRequestItem->unit;
+            }
+
+            if (blank($item->default_specification) && filled($purchaseRequestItem->specification)) {
+                $itemUpdates['default_specification'] = $purchaseRequestItem->specification;
+            }
+
+            if (! $item->is_active) {
+                $itemUpdates['is_active'] = true;
+            }
+
+            if (! empty($itemUpdates)) {
+                $item->update($itemUpdates);
+            }
+
+            if ($purchaseRequestItem->item_id !== $item->id) {
+                $purchaseRequestItem->update([
+                    'item_id' => $item->id,
+                ]);
+            }
+
+            if (! method_exists($item, 'photos')) {
+                continue;
+            }
+
+            foreach ($purchaseRequestItem->photos ?? [] as $photo) {
+                $filePath = trim((string) ($photo->file_path ?? ''));
+
+                if ($filePath === '') {
+                    continue;
+                }
+
+                $fileName = trim((string) ($photo->file_name ?? ''));
+
+                $item->photos()->updateOrCreate(
+                    [
+                        'file_path' => $filePath,
+                    ],
+                    [
+                        'file_name' => $fileName !== '' ? $fileName : basename($filePath),
+                    ]
+                );
+            }
         }
     }
 
@@ -151,10 +192,10 @@ class CreatePurchaseRequest extends CreateRecord
         }
     }
 
-    protected function getRedirectUrl(): string
-    {
-        return $this->getResource()::getUrl('index');
-    }
+    // protected function getRedirectUrl(): string
+    // {
+    //     return $this->getResource()::getUrl('index');
+    // }
 
     protected function getCreatedNotificationTitle(): ?string
     {

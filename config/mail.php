@@ -125,5 +125,6 @@ return [
     'accounting_notification_emails' => array_values(array_filter(array_map('trim', explode(',', (string) env('ACCOUNTING_NOTIFICATION_EMAILS', ''))))),
     'gm_notification_emails' => array_values(array_filter(array_map('trim', explode(',', (string) env('GM_NOTIFICATION_EMAILS', ''))))),
     'owner_notification_emails' => array_values(array_filter(array_map('trim', explode(',', (string) env('OWNER_NOTIFICATION_EMAILS', ''))))),
+    'financial_controller_notification_emails' => array_values(array_filter(array_map('trim', explode(',', (string) env('FINANCIAL_CONTROLLER_NOTIFICATION_EMAILS', ''))))),
 
 ];

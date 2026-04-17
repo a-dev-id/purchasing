@@ -2,8 +2,10 @@
 
 namespace App\Filament\Resources\Items\Schemas;
 
+use Filament\Forms\Components\FileUpload;
+use Filament\Forms\Components\Repeater;
+use Filament\Forms\Components\RichEditor;
 use Filament\Forms\Components\TextInput;
-use Filament\Forms\Components\Textarea;
 use Filament\Forms\Components\Toggle;
 use Filament\Schemas\Components\Section;
 use Filament\Schemas\Schema;
@@ -49,16 +51,58 @@ class ItemForm
                             ->required()
                             ->maxLength(10),
 
-                        Textarea::make('default_specification')
+                        RichEditor::make('default_specification')
                             ->label('Default Specification')
-                            ->rows(4)
+                            ->toolbarButtons([
+                                'bold',
+                                'italic',
+                                'underline',
+                                'bulletList',
+                                'orderedList',
+                            ])
                             ->columnSpanFull(),
 
                         Toggle::make('is_active')
                             ->label('Active')
-                            ->default(true),
+                            ->default(true)
+                            ->columnSpanFull(),
                     ])
-                    ->columns(2),
-            ]);
+                    ->columns(2)
+                    ->columnSpan(2),
+
+                Section::make('Item Images')
+                    ->schema([
+                        Repeater::make('photos')
+                            ->relationship()
+                            ->hiddenLabel()
+                            ->defaultItems(0)
+                            ->collapsible()
+                            ->reorderable()
+                            ->itemLabel(function (array $state): ?string {
+                                $fileName = trim((string) ($state['file_name'] ?? ''));
+
+                                return $fileName !== '' ? $fileName : 'Image';
+                            })
+                            ->schema([
+                                FileUpload::make('file_path')
+                                    ->label('Image')
+                                    ->image()
+                                    ->disk('public')
+                                    ->directory('item-photos')
+                                    ->visibility('public')
+                                    ->imagePreviewHeight('180')
+                                    ->required(),
+
+                                TextInput::make('file_name')
+                                    ->label('Image Name')
+                                    ->maxLength(255),
+                            ])
+                            ->columns(1)
+                            ->addActionLabel('Add Image')
+                            ->columnSpanFull(),
+                    ])
+                    ->columnSpan(1),
+            ])
+            ->columns(3);
     }
 }

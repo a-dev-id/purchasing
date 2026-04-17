@@ -3,6 +3,7 @@
 namespace App\Models;
 
 use Illuminate\Database\Eloquent\Model;
+use Illuminate\Database\Eloquent\Relations\HasMany;
 
 class Item extends Model
 {
@@ -22,4 +23,9 @@ class Item extends Model
         'last_price' => 'decimal:2',
         'is_active' => 'boolean',
     ];
+
+    public function photos(): HasMany
+    {
+        return $this->hasMany(ItemPhoto::class);
+    }
 }

@@ -828,9 +828,21 @@ return [
 
 <body>
     <div class="print-actions">
-        <a href="{{ url()->previous() }}" class="btn">Back</a>
+        <button type="button" class="btn" onclick="closePreviewTab()">Back</button>
         <a href="javascript:window.print()" class="btn">Print</a>
     </div>
+
+    <script>
+        function closePreviewTab() {
+            window.close();
+    
+            setTimeout(function () {
+                if (!window.closed) {
+                    window.history.back();
+                }
+            }, 100);
+        }
+    </script>
 
     <div class="page">
         <div class="top-grid">

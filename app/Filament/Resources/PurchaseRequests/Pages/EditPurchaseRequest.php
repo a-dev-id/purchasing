@@ -733,53 +733,79 @@ class EditPurchaseRequest extends EditRecord
 
     protected function syncItemsToMasterCatalog(): void
     {
-        $this->record->load('items');
+        $this->record->load([
+            'items.photos',
+        ]);
 
         foreach ($this->record->items as $purchaseRequestItem) {
-            if ($purchaseRequestItem->item_id) {
-                $existingItem = Item::find($purchaseRequestItem->item_id);
-
-                if ($existingItem) {
-                    $existingItem->update([
-                        'default_unit' => $purchaseRequestItem->unit ?: $existingItem->default_unit,
-                        'default_specification' => $purchaseRequestItem->specification ?: $existingItem->default_specification,
-                    ]);
-                }
-
-                continue;
-            }
-
             $itemName = trim((string) $purchaseRequestItem->item_name);
 
             if ($itemName === '') {
                 continue;
             }
 
-            $item = Item::firstOrCreate(
-                [
-                    'name' => $itemName,
-                ],
-                [
-                    'default_unit' => $purchaseRequestItem->unit,
-                    'default_specification' => $purchaseRequestItem->specification,
-                    'currency' => 'IDR',
-                    'is_active' => true,
-                ]
-            );
+            $item = null;
 
-            if (! $item->default_unit && $purchaseRequestItem->unit) {
-                $item->default_unit = $purchaseRequestItem->unit;
+            if ($purchaseRequestItem->item_id) {
+                $item = Item::find($purchaseRequestItem->item_id);
             }
 
-            if (! $item->default_specification && $purchaseRequestItem->specification) {
-                $item->default_specification = $purchaseRequestItem->specification;
+            if (! $item) {
+                $item = Item::firstOrCreate(
+                    [
+                        'name' => $itemName,
+                    ],
+                    [
+                        'default_unit' => $purchaseRequestItem->unit,
+                        'default_specification' => $purchaseRequestItem->specification,
+                        'currency' => 'IDR',
+                        'is_active' => true,
+                    ]
+                );
             }
 
-            $item->save();
+            $itemUpdates = [];
 
-            $purchaseRequestItem->update([
-                'item_id' => $item->id,
-            ]);
+            if (blank($item->default_unit) && filled($purchaseRequestItem->unit)) {
+                $itemUpdates['default_unit'] = $purchaseRequestItem->unit;
+            }
+
+            if (blank($item->default_specification) && filled($purchaseRequestItem->specification)) {
+                $itemUpdates['default_specification'] = $purchaseRequestItem->specification;
+            }
+
+            if (! $item->is_active) {
+                $itemUpdates['is_active'] = true;
+            }
+
+            if (! empty($itemUpdates)) {
+                $item->update($itemUpdates);
+            }
+
+            if ($purchaseRequestItem->item_id !== $item->id) {
+                $purchaseRequestItem->update([
+                    'item_id' => $item->id,
+                ]);
+            }
+
+            foreach ($purchaseRequestItem->photos ?? [] as $photo) {
+                $filePath = trim((string) ($photo->file_path ?? ''));
+
+                if ($filePath === '') {
+                    continue;
+                }
+
+                $fileName = trim((string) ($photo->file_name ?? ''));
+
+                $item->photos()->updateOrCreate(
+                    [
+                        'file_path' => $filePath,
+                    ],
+                    [
+                        'file_name' => $fileName !== '' ? $fileName : basename($filePath),
+                    ]
+                );
+            }
         }
     }
 

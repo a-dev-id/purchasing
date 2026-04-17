@@ -17,33 +17,12 @@ class ItemsTable
                 TextColumn::make('name')
                     ->label('Item Name')
                     ->searchable()
-                    ->sortable(),
-
-                TextColumn::make('sku')
-                    ->label('SKU')
-                    ->searchable()
                     ->sortable()
-                    ->toggleable(),
-
-                TextColumn::make('category')
-                    ->label('Category')
-                    ->searchable()
-                    ->sortable()
-                    ->badge(),
-
-                TextColumn::make('brand')
-                    ->label('Brand')
-                    ->searchable()
-                    ->sortable()
-                    ->toggleable(),
+                    ->limit(50)
+                    ->tooltip(fn($record) => $record->name),
 
                 TextColumn::make('default_unit')
                     ->label('Unit')
-                    ->sortable(),
-
-                TextColumn::make('last_price')
-                    ->label('Last Price')
-                    ->money(fn($record) => $record->currency ?: 'IDR')
                     ->sortable(),
 
                 TextColumn::make('currency')

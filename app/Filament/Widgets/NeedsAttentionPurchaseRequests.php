@@ -4,11 +4,13 @@ namespace App\Filament\Widgets;
 
 use App\Filament\Resources\PurchaseRequests\PurchaseRequestResource;
 use App\Models\PurchaseRequest;
+use App\Models\User;
 use Filament\Actions\Action;
 use Filament\Tables\Columns\TextColumn;
 use Filament\Tables\Table;
 use Filament\Widgets\TableWidget;
 use Illuminate\Database\Eloquent\Builder;
+use Illuminate\Support\Facades\Auth;
 
 class NeedsAttentionPurchaseRequests extends TableWidget
 {
@@ -73,6 +75,12 @@ class NeedsAttentionPurchaseRequests extends TableWidget
                         'revision_to_accounting_from_gm' => 'Back to Accounting',
                         'revision_to_requester_from_gm' => 'Back to Requester',
                         'on_hold_by_gm' => 'Hold GM',
+                        'gm_approved' => 'To Financial Controller',
+                        'waiting_payment_by_fc' => 'Waiting Payment',
+                        'paid_to_vendor_by_fc' => 'Paid to Vendor',
+                        'item_arrived_by_fc' => 'Item Arrived',
+                        'received_by_requester_by_fc' => 'Received by Requester',
+                        'on_hold_by_fc' => 'Hold Financial Controller',
                         default => $state ? str($state)->replace('_', ' ')->title() : '-',
                     })
                     ->color(fn(?string $state) => match ($state) {
@@ -86,6 +94,13 @@ class NeedsAttentionPurchaseRequests extends TableWidget
 
                         'submitted_to_gm',
                         'on_hold_by_gm' => 'danger',
+
+                        'gm_approved',
+                        'waiting_payment_by_fc',
+                        'paid_to_vendor_by_fc',
+                        'item_arrived_by_fc',
+                        'received_by_requester_by_fc',
+                        'on_hold_by_fc' => 'success',
 
                         'revision_from_purchasing',
                         'revision_from_accounting',
@@ -111,6 +126,13 @@ class NeedsAttentionPurchaseRequests extends TableWidget
                         'submitted_to_gm',
                         'on_hold_by_gm' => 'GM',
 
+                        'gm_approved',
+                        'waiting_payment_by_fc',
+                        'paid_to_vendor_by_fc',
+                        'item_arrived_by_fc',
+                        'received_by_requester_by_fc',
+                        'on_hold_by_fc' => 'Financial Controller',
+
                         'revision_from_purchasing',
                         'revision_from_accounting',
                         'revision_from_gm',
@@ -123,6 +145,7 @@ class NeedsAttentionPurchaseRequests extends TableWidget
                         'Purchasing' => 'warning',
                         'Accounting' => 'info',
                         'GM' => 'danger',
+                        'Financial Controller' => 'success',
                         'Requester' => 'gray',
                         default => 'gray',
                     }),
@@ -157,16 +180,21 @@ class NeedsAttentionPurchaseRequests extends TableWidget
             ])
             ->recordActions([
                 Action::make('open')
-                    ->label('Open PR')
+                    ->label(fn(PurchaseRequest $record): string => PurchaseRequestResource::canEdit($record) ? 'Open PR' : 'View Form')
                     ->icon('heroicon-m-arrow-top-right-on-square')
-                    ->url(fn(PurchaseRequest $record) => PurchaseRequestResource::getUrl('edit', ['record' => $record])),
+                    ->url(fn(PurchaseRequest $record): string => PurchaseRequestResource::canEdit($record)
+                        ? PurchaseRequestResource::getUrl('edit', ['record' => $record])
+                        : PurchaseRequestResource::getUrl('view', ['record' => $record])),
             ])
             ->emptyStateHeading('No PR needs attention right now');
     }
 
     protected function getTableQuery(): Builder
     {
-        return PurchaseRequest::query()
+        /** @var User|null $user */
+        $user = Auth::user();
+
+        $query = PurchaseRequest::query()
             ->whereIn('status', [
                 'submitted',
                 'revision_from_purchasing',
@@ -181,7 +209,23 @@ class NeedsAttentionPurchaseRequests extends TableWidget
                 'revision_to_accounting_from_gm',
                 'revision_to_requester_from_gm',
                 'on_hold_by_gm',
-            ])
+                'gm_approved',
+                'waiting_payment_by_fc',
+                'paid_to_vendor_by_fc',
+                'item_arrived_by_fc',
+                'received_by_requester_by_fc',
+                'on_hold_by_fc',
+            ]);
+
+        if (
+            $user instanceof User
+            && ! $user->isAdmin()
+            && ! $user->canSeeAllPurchaseRequests()
+        ) {
+            $query->where('department_name', $user->department_name);
+        }
+
+        return $query
             ->orderByRaw("
                 CASE
                     WHEN priority = 'urgent' THEN 0

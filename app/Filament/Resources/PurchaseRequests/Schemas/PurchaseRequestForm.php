@@ -173,6 +173,12 @@ class PurchaseRequestForm
         return false;
     }
 
+    protected static function canShowItemVendorOffersSection(?PurchaseRequest $record, ?string $mode = null): bool
+    {
+        return ($mode ?? $record?->vendor_comparison_mode ?? 'pr') === 'item'
+            && static::canShowVendorOffers($record);
+    }
+
     protected static function getVendorOfferSelectionKey(array $offer, int|string $index): string
     {
         $id = $offer['id'] ?? null;
@@ -586,8 +592,10 @@ class PurchaseRequestForm
                                             ? $livewire->getRecord()
                                             : null;
 
-                                        return (($get('../../vendor_comparison_mode') ?? $purchaseRequest?->vendor_comparison_mode ?? 'pr') === 'item')
-                                            && static::canShowVendorOffers($purchaseRequest);
+                                        return static::canShowItemVendorOffersSection(
+                                            $purchaseRequest,
+                                            $get('../../vendor_comparison_mode')
+                                        );
                                     }),
 
                                 Radio::make('selected_vendor_choice')
@@ -611,8 +619,10 @@ class PurchaseRequestForm
                                             ? $livewire->getRecord()
                                             : null;
 
-                                        return (($get('../../vendor_comparison_mode') ?? $purchaseRequest?->vendor_comparison_mode ?? 'pr') === 'item')
-                                            && static::canShowVendorOffers($purchaseRequest)
+                                        return static::canShowItemVendorOffersSection(
+                                            $purchaseRequest,
+                                            $get('../../vendor_comparison_mode')
+                                        )
                                             && static::canSelectFinalVendor()
                                             && count($get('vendorOffers') ?? []) > 0;
                                     })
@@ -622,6 +632,16 @@ class PurchaseRequestForm
                             ->extraAttributes([
                                 'class' => 'rounded-xl border border-gray-200 bg-gray-50 p-1',
                             ])
+                            ->visible(function (Get $get, \Livewire\Component $livewire): bool {
+                                $purchaseRequest = method_exists($livewire, 'getRecord')
+                                    ? $livewire->getRecord()
+                                    : null;
+
+                                return static::canShowItemVendorOffersSection(
+                                    $purchaseRequest,
+                                    $get('../../vendor_comparison_mode')
+                                );
+                            })
                             ->columnSpanFull(),
                     ])
                     ->columns(3)
