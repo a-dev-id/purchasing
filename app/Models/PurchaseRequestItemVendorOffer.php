@@ -11,6 +11,7 @@ class PurchaseRequestItemVendorOffer extends Model
         'purchase_request_item_id',
         'vendor_id',
         'vendor_name',
+        'category',
         'contact_person',
         'phone',
         'email',
