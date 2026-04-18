@@ -78,15 +78,29 @@ class PurchaseRequestsTable
                         'revision_to_accounting_from_gm' => 'Back to Accounting',
                         'revision_to_requester_from_gm' => 'Back to Requester',
                         'on_hold_by_gm' => 'Hold GM',
-                        'gm_approved' => 'GM Approved',
+                        'gm_approved' => 'To Financial Controller',
+
+                        // Current FC flow
+                        'pending' => 'Pending',
+                        'on_progress' => 'On Progress',
+                        'waiting_payment' => 'Waiting Payment',
+                        'paid_to_vendor' => 'Paid to Vendor',
+                        'on_shipping' => 'On Shipping',
+                        'received_by_requester' => 'Received by Requester (Done)',
+                        'cancelled' => 'Cancelled',
+
+                        // Legacy FC flow compatibility
+                        'pending_by_fc' => 'Pending',
+                        'on_progress_by_fc' => 'On Progress',
                         'waiting_payment_by_fc' => 'Waiting Payment',
                         'paid_to_vendor_by_fc' => 'Paid to Vendor',
-                        'item_arrived_by_fc' => 'Item Arrived',
-                        'received_by_requester_by_fc' => 'Received by Requester',
+                        'on_shipping_by_fc' => 'On Shipping',
+                        'item_arrived_by_fc' => 'On Shipping',
+                        'received_by_requester_by_fc' => 'Received by Requester (Done)',
                         'on_hold_by_fc' => 'Hold FC',
+
                         'approved' => 'Approved',
                         'rejected' => 'Rejected',
-                        'cancelled' => 'Cancelled',
                         null, '' => '-',
                         default => str($state)->replace('_', ' ')->title(),
                     })
@@ -99,7 +113,23 @@ class PurchaseRequestsTable
                         'revision_to_purchasing_from_accounting',
                         'revision_to_purchasing_from_gm',
                         'revision_to_accounting_from_gm',
+                        'gm_approved',
+                        'pending',
+                        'pending_by_fc',
+                        'waiting_payment',
                         'waiting_payment_by_fc' => 'warning',
+
+                        'on_progress',
+                        'on_progress_by_fc',
+                        'on_shipping',
+                        'on_shipping_by_fc',
+                        'item_arrived_by_fc' => 'info',
+
+                        'paid_to_vendor',
+                        'paid_to_vendor_by_fc',
+                        'received_by_requester',
+                        'received_by_requester_by_fc',
+                        'approved' => 'success',
 
                         'revision_from_purchasing',
                         'revision_from_accounting',
@@ -112,12 +142,6 @@ class PurchaseRequestsTable
                         'on_hold_by_accounting',
                         'on_hold_by_gm',
                         'on_hold_by_fc' => 'gray',
-
-                        'gm_approved',
-                        'paid_to_vendor_by_fc',
-                        'item_arrived_by_fc',
-                        'received_by_requester_by_fc',
-                        'approved' => 'success',
 
                         default => 'gray',
                     })
@@ -142,11 +166,25 @@ class PurchaseRequestsTable
                         'revision_to_requester_from_gm' => 'Requester',
                         'on_hold_by_gm' => 'GM',
                         'gm_approved' => 'Financial Controller',
+
+                        // Current FC flow
+                        'pending' => 'Financial Controller',
+                        'on_progress' => 'Financial Controller',
+                        'waiting_payment' => 'Financial Controller',
+                        'paid_to_vendor' => 'Financial Controller',
+                        'on_shipping' => 'Financial Controller',
+                        'received_by_requester' => 'Done',
+
+                        // Legacy FC flow compatibility
+                        'pending_by_fc' => 'Financial Controller',
+                        'on_progress_by_fc' => 'Financial Controller',
                         'waiting_payment_by_fc' => 'Financial Controller',
                         'paid_to_vendor_by_fc' => 'Financial Controller',
+                        'on_shipping_by_fc' => 'Financial Controller',
                         'item_arrived_by_fc' => 'Financial Controller',
                         'received_by_requester_by_fc' => 'Done',
                         'on_hold_by_fc' => 'Financial Controller',
+
                         'approved' => 'Done',
                         'rejected' => 'Stopped',
                         'cancelled' => 'Cancelled',
@@ -202,15 +240,8 @@ class PurchaseRequestsTable
 
                 ViewAction::make()
                     ->label('View')
-                    ->visible(fn(PurchaseRequest $record): bool => in_array($record->status, [
-                        'gm_approved',
-                        'waiting_payment_by_fc',
-                        'paid_to_vendor_by_fc',
-                        'item_arrived_by_fc',
-                        'received_by_requester_by_fc',
-                        'on_hold_by_fc',
-                        'approved',
-                    ], true)),
+                    ->visible(fn(PurchaseRequest $record): bool => PurchaseRequestResource::canView($record)
+                        && ! PurchaseRequestResource::canEdit($record)),
 
                 EditAction::make()
                     ->visible(fn(PurchaseRequest $record): bool => PurchaseRequestResource::canEdit($record)),

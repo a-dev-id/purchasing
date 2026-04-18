@@ -188,6 +188,8 @@ return null;
 };
 
 $selectedPrOffer = $resolveSelectedOffer($purchaseRequest, $prOffers);
+$selectedPrOfferTotal = $selectedPrOffer ? $getOfferLineTotal($selectedPrOffer, 1) : null;
+$selectedPrOfferCurrency = $selectedPrOffer ? $getOfferCurrency($selectedPrOffer) : 'IDR';
 
 $selectedItemOffers = $items
 ->map(function ($item) use ($resolveSelectedOffer) {
@@ -348,7 +350,7 @@ $accountingApproval = null;
 
 if (! $accountingApproval && in_array($currentStatus, ['submitted_to_gm', 'gm_approved', 'approved'], true)) {
 $fallbackAccountingApproval = $findLatestLog(
-roles: ['accounting', 'cost controller', 'financial controller']
+roles: ['accounting', 'cost controller']
 );
 
 if (
@@ -373,10 +375,54 @@ if (! $isLogAfter($gmApproval, $latestReturnedFromGm)) {
 $gmApproval = null;
 }
 
+$latestFinancialControllerLog = $findLatestLog(
+actions: [
+'pending',
+'on_progress',
+'waiting_payment',
+'paid_to_vendor',
+'on_shipping',
+'received_by_requester',
+'waiting_payment_by_fc',
+'paid_to_vendor_by_fc',
+'item_arrived_by_fc',
+'received_by_requester_by_fc',
+'on_hold_by_fc',
+'approved',
+'final_approved',
+'approved_by_financial_controller',
+],
+toStatuses: [
+'pending',
+'on_progress',
+'waiting_payment',
+'paid_to_vendor',
+'on_shipping',
+'received_by_requester',
+'waiting_payment_by_fc',
+'paid_to_vendor_by_fc',
+'item_arrived_by_fc',
+'received_by_requester_by_fc',
+'on_hold_by_fc',
+'approved',
+'final_approved',
+]
+);
+
 $financialControllerApproval = $findLatestLog(
-actions: ['approved_by_financial_controller', 'final_approved'],
-toStatuses: ['final_approved'],
-roles: ['financial controller']
+actions: [
+'received_by_requester',
+'received_by_requester_by_fc',
+'approved',
+'final_approved',
+'approved_by_financial_controller',
+],
+toStatuses: [
+'received_by_requester',
+'received_by_requester_by_fc',
+'approved',
+'final_approved',
+]
 );
 
 $approvalDate = function ($log) {
@@ -390,6 +436,57 @@ return filled($date)
 ? \Carbon\Carbon::parse($date)->timezone('Asia/Makassar')->format('d M Y H:i')
 : '-';
 };
+
+$financialControllerStatusLabel = match ($currentStatus) {
+'gm_approved' => 'Waiting FC Action',
+'pending' => 'Pending',
+'on_progress' => 'On Progress',
+'waiting_payment' => 'Waiting Payment',
+'paid_to_vendor' => 'Paid to Vendor',
+'on_shipping' => 'On Shipping',
+'received_by_requester' => 'Received by Requester (Done)',
+'cancelled' => 'Cancelled',
+
+'waiting_payment_by_fc' => 'Waiting Payment',
+'paid_to_vendor_by_fc' => 'Paid to Vendor',
+'item_arrived_by_fc' => 'On Shipping',
+'received_by_requester_by_fc' => 'Received by Requester (Done)',
+'on_hold_by_fc' => 'On Hold',
+'approved' => 'Completed',
+
+default => $financialControllerApproval ? 'Completed' : '-',
+};
+
+$financialControllerStatusClass = match ($currentStatus) {
+'gm_approved', 'pending', 'waiting_payment', 'waiting_payment_by_fc' => 'status-warning',
+'on_progress', 'on_shipping', 'item_arrived_by_fc' => 'status-info',
+'paid_to_vendor', 'paid_to_vendor_by_fc', 'received_by_requester', 'received_by_requester_by_fc', 'approved' => 'status-success',
+'cancelled' => 'status-danger',
+'on_hold_by_fc' => 'status-muted',
+default => $financialControllerApproval ? 'status-success' : '',
+};
+
+$financialControllerStatusDate = '-';
+
+if (in_array($currentStatus, [
+'pending',
+'on_progress',
+'waiting_payment',
+'paid_to_vendor',
+'on_shipping',
+'received_by_requester',
+'waiting_payment_by_fc',
+'paid_to_vendor_by_fc',
+'item_arrived_by_fc',
+'received_by_requester_by_fc',
+'on_hold_by_fc',
+'approved',
+'final_approved',
+], true) && $latestFinancialControllerLog) {
+$financialControllerStatusDate = $approvalDate($latestFinancialControllerLog);
+} elseif ($currentStatus === 'gm_approved') {
+$financialControllerStatusDate = '-';
+}
 
 $rowsToShow = max($items->count(), 1);
 
@@ -782,6 +879,26 @@ return [
             line-height: 1.35;
         }
 
+        .sign-status.status-warning {
+            color: #b45309;
+        }
+
+        .sign-status.status-muted {
+            color: #6b7280;
+        }
+
+        .sign-status.status-success {
+            color: #15803d;
+        }
+
+        .sign-status.status-info {
+            color: #1d4ed8;
+        }
+
+        .sign-status.status-danger {
+            color: #b91c1c;
+        }
+
         .sign-date {
             padding: 8px 10px;
             border-top: 1px solid #111827;
@@ -835,7 +952,7 @@ return [
     <script>
         function closePreviewTab() {
             window.close();
-    
+
             setTimeout(function () {
                 if (!window.closed) {
                     window.history.back();
@@ -1045,6 +1162,10 @@ return [
                             -
                             @endif
                         </td>
+
+                        <td class="text-right {{ $selectedPrOffer ? 'selected-vendor-cell' : '' }}" rowspan="{{ $rowsToShow }}" style="vertical-align: middle; font-weight: 700;">
+                            {{ $selectedPrOffer ? $formatMoney($selectedPrOfferTotal, $selectedPrOfferCurrency) : '-' }}
+                        </td>
                         @endif
                         @else
                         <td class="text-center {{ $rowBid1Selected ? 'selected-vendor-cell' : '' }}">
@@ -1094,11 +1215,11 @@ return [
                             -
                             @endif
                         </td>
-                        @endif
 
                         <td class="text-right">
                             {{ $item ? $formatMoney($rowFinalTotal, $rowFinalCurrency) : '-' }}
                         </td>
+                        @endif
                     </tr>
                     @endfor
             </tbody>
@@ -1318,13 +1439,13 @@ return [
             <div class="sign-box">
                 <div class="sign-title">
                     Financial Controller
-                    <div class="sign-status">
-                        {{ $financialControllerApproval ? 'Approved' : '-' }}
+                    <div class="sign-status {{ $financialControllerStatusClass }}">
+                        {{ $financialControllerStatusLabel }}
                     </div>
                 </div>
                 <div class="sign-date">
                     Date
-                    <div class="sign-date-value">{{ $approvalDate($financialControllerApproval) }}</div>
+                    <div class="sign-date-value">{{ $financialControllerStatusDate }}</div>
                 </div>
             </div>
         </div>

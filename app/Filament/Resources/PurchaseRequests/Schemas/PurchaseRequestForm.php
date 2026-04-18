@@ -113,12 +113,16 @@ class PurchaseRequestForm
     {
         $user = static::getCurrentUser();
 
-        if (! $user || ! $record) {
+        if (! $user) {
             return false;
         }
 
         if ($user->isAdmin()) {
             return true;
+        }
+
+        if (! $record) {
+            return $user->isPurchasing();
         }
 
         if ($user->isPurchasing()) {
@@ -175,7 +179,7 @@ class PurchaseRequestForm
 
     protected static function canShowItemVendorOffersSection(?PurchaseRequest $record, ?string $mode = null): bool
     {
-        return ($mode ?? $record?->vendor_comparison_mode ?? 'pr') === 'item'
+        return ($mode ?? $record?->vendor_comparison_mode ?? 'item') === 'item'
             && static::canShowVendorOffers($record);
     }
 
@@ -314,7 +318,7 @@ class PurchaseRequestForm
                 ->maxLength(191),
 
             TextInput::make('phone')
-                ->label('Phone')
+                ->label('Phone/WhatsApp')
                 ->tel()
                 ->maxLength(191),
 
@@ -411,11 +415,13 @@ class PurchaseRequestForm
                         Select::make('vendor_comparison_mode')
                             ->label('Vendor Comparison Mode')
                             ->options([
-                                'item' => 'Mix item(s)',
-                                'pr' => '1 PR, 3 Vendors',
+                                'item' => 'Individual Vendor per Item',
+                                'pr' => '1 Vendor for the whole PR',
                             ])
                             ->required()
                             ->default('item')
+                            ->live()
+                            ->formatStateUsing(fn($state): string => filled($state) ? $state : 'item')
                             ->visible(function (): bool {
                                 $user = Auth::user();
 
@@ -551,16 +557,13 @@ class PurchaseRequestForm
                                     ->maxLength(255),
                             ])
                             ->itemLabel(function (array $state): string {
-                                static $photoIndex = 0;
-                                $photoIndex++;
-
                                 $photoName = trim((string) ($state['file_name'] ?? ''));
 
                                 if ($photoName !== '') {
                                     return Str::limit($photoName, 40);
                                 }
 
-                                return 'Photo ' . $photoIndex;
+                                return 'Photo';
                             })
                             ->extraAttributes([
                                 'class' => 'rounded-xl border border-gray-200 bg-gray-50 p-1',
@@ -657,6 +660,7 @@ class PurchaseRequestForm
                             ->maxItems(3)
                             ->reorderable()
                             ->collapsible()
+                            ->collapsed()
                             ->cloneable()
                             ->itemLabel(fn(array $state): ?string => static::getVendorOfferItemLabel($state))
                             ->schema(static::vendorOfferSchema())
@@ -680,7 +684,7 @@ class PurchaseRequestForm
                                 $set('vendorOffers', static::syncSelectedVendorFlags($offers, $state));
                             })
                             ->visible(function (?PurchaseRequest $record, Get $get): bool {
-                                return (($get('vendor_comparison_mode') ?? $record?->vendor_comparison_mode ?? 'pr') === 'pr')
+                                return (($get('vendor_comparison_mode') ?? $record?->vendor_comparison_mode ?? 'item') === 'pr')
                                     && static::canShowVendorOffers($record)
                                     && static::canSelectFinalVendor()
                                     && count($get('vendorOffers') ?? []) > 0;
@@ -688,7 +692,7 @@ class PurchaseRequestForm
                             ->columnSpanFull(),
                     ])
                     ->visible(fn(?PurchaseRequest $record, Get $get): bool => (
-                        ($get('vendor_comparison_mode') ?? $record?->vendor_comparison_mode ?? 'pr') === 'pr'
+                        ($get('vendor_comparison_mode') ?? $record?->vendor_comparison_mode ?? 'item') === 'pr'
                     ) && static::canShowVendorOffers($record))
                     ->columnSpanFull(),
             ]);

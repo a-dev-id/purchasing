@@ -174,31 +174,24 @@ class PurchaseRequestResource extends Resource
         return static::isAdminUser($user) || static::isOwnerUser($user);
     }
 
+    protected static function requesterEditableStatuses(): array
+    {
+        return [
+            'draft',
+            'revision_from_purchasing',
+            'revision_from_accounting',
+            'revision_from_gm',
+            'revision_to_requester_from_accounting',
+            'revision_to_requester_from_gm',
+        ];
+    }
+
     protected static function purchasingVisibleStatuses(): array
     {
         return [
             'submitted',
-            'revision_from_purchasing',
-            'submitted_to_accounting',
-            'revision_from_accounting',
             'revision_to_purchasing_from_accounting',
-            'revision_to_requester_from_accounting',
-            'on_hold_by_accounting',
-            'submitted_to_gm',
-            'revision_from_gm',
             'revision_to_purchasing_from_gm',
-            'revision_to_accounting_from_gm',
-            'revision_to_requester_from_gm',
-            'on_hold_by_gm',
-            'gm_approved',
-            'waiting_payment_by_fc',
-            'paid_to_vendor_by_fc',
-            'item_arrived_by_fc',
-            'received_by_requester_by_fc',
-            'on_hold_by_fc',
-            'approved',
-            'rejected',
-            'cancelled',
         ];
     }
 
@@ -208,23 +201,7 @@ class PurchaseRequestResource extends Resource
             'submitted_to_accounting',
             'on_hold_by_accounting',
             'revision_from_accounting',
-            'revision_to_purchasing_from_accounting',
-            'revision_to_requester_from_accounting',
-            'submitted_to_gm',
-            'revision_from_gm',
-            'revision_to_purchasing_from_gm',
             'revision_to_accounting_from_gm',
-            'revision_to_requester_from_gm',
-            'on_hold_by_gm',
-            'gm_approved',
-            'waiting_payment_by_fc',
-            'paid_to_vendor_by_fc',
-            'item_arrived_by_fc',
-            'received_by_requester_by_fc',
-            'on_hold_by_fc',
-            'approved',
-            'rejected',
-            'cancelled',
         ];
     }
 
@@ -234,43 +211,53 @@ class PurchaseRequestResource extends Resource
             'submitted_to_gm',
             'on_hold_by_gm',
             'revision_from_gm',
-            'revision_to_purchasing_from_gm',
-            'revision_to_accounting_from_gm',
-            'revision_to_requester_from_gm',
-            'gm_approved',
-            'waiting_payment_by_fc',
-            'paid_to_vendor_by_fc',
-            'item_arrived_by_fc',
-            'received_by_requester_by_fc',
-            'on_hold_by_fc',
-            'approved',
-            'rejected',
-            'cancelled',
         ];
     }
 
     protected static function financialControllerVisibleStatuses(): array
     {
         return [
+            // current FC flow
             'gm_approved',
+            'pending',
+            'on_progress',
+            'waiting_payment',
+            'paid_to_vendor',
+            'on_shipping',
+
+            // legacy compatibility
             'waiting_payment_by_fc',
             'paid_to_vendor_by_fc',
             'item_arrived_by_fc',
-            'received_by_requester_by_fc',
             'on_hold_by_fc',
-            'approved',
-            'rejected',
-            'cancelled',
+        ];
+    }
+
+    protected static function financialControllerEditableStatuses(): array
+    {
+        return [
+            // current FC flow
+            'gm_approved',
+            'pending',
+            'on_progress',
+            'waiting_payment',
+            'paid_to_vendor',
+            'on_shipping',
+
+            // legacy compatibility
+            'waiting_payment_by_fc',
+            'paid_to_vendor_by_fc',
+            'item_arrived_by_fc',
+            'on_hold_by_fc',
         ];
     }
 
     public static function getEloquentQuery(): Builder
     {
         $query = parent::getEloquentQuery();
-
         $user = static::getCurrentUser();
 
-        if (! $user || ! $user->is_active) {
+        if (! $user) {
             return $query->whereRaw('1 = 0');
         }
 
@@ -303,33 +290,25 @@ class PurchaseRequestResource extends Resource
 
     public static function canViewAny(): bool
     {
-        $user = static::getCurrentUser();
-
-        return $user?->is_active ?? false;
+        return static::getCurrentUser() instanceof User;
     }
 
     public static function canCreate(): bool
     {
         $user = static::getCurrentUser();
 
-        if (! $user || ! $user->is_active) {
+        if (! $user) {
             return false;
         }
 
-        if (static::isAdminUser($user)) {
-            return true;
-        }
-
-        return method_exists($user, 'canCreatePurchaseRequests')
-            ? $user->canCreatePurchaseRequests()
-            : false;
+        return static::isRequesterUser($user) || static::isAdminUser($user);
     }
 
     public static function canView(Model $record): bool
     {
         $user = static::getCurrentUser();
 
-        if (! $user || ! $user->is_active) {
+        if (! $user || ! $record instanceof PurchaseRequest) {
             return false;
         }
 
@@ -364,7 +343,7 @@ class PurchaseRequestResource extends Resource
     {
         $user = static::getCurrentUser();
 
-        if (! $user || ! $user->is_active) {
+        if (! $user || ! $record instanceof PurchaseRequest) {
             return false;
         }
 
@@ -372,12 +351,13 @@ class PurchaseRequestResource extends Resource
             return true;
         }
 
+        if (static::isRequesterUser($user)) {
+            return $record->department_name === $user->department_name
+                && in_array($record->status, static::requesterEditableStatuses(), true);
+        }
+
         if (static::isPurchasingUser($user)) {
-            return in_array($record->status, [
-                'submitted',
-                'revision_to_purchasing_from_accounting',
-                'revision_to_purchasing_from_gm',
-            ], true);
+            return in_array($record->status, static::purchasingVisibleStatuses(), true);
         }
 
         if (static::isAccountingUser($user)) {
@@ -385,50 +365,26 @@ class PurchaseRequestResource extends Resource
                 'submitted_to_accounting',
                 'on_hold_by_accounting',
                 'revision_to_accounting_from_gm',
-                'gm_approved',
-                'waiting_payment_by_fc',
-                'paid_to_vendor_by_fc',
-                'item_arrived_by_fc',
-                'on_hold_by_fc',
             ], true);
         }
 
         if (static::isGmUser($user)) {
-            return in_array($record->status, [
-                'submitted_to_gm',
-                'on_hold_by_gm',
-            ], true);
+            return in_array($record->status, static::gmVisibleStatuses(), true);
         }
 
         if (static::isFinancialControllerUser($user)) {
-            return in_array($record->status, [
-                'gm_approved',
-                'waiting_payment_by_fc',
-                'paid_to_vendor_by_fc',
-                'item_arrived_by_fc',
-                'on_hold_by_fc',
-            ], true);
-        }
-
-        if (static::isRequesterUser($user)) {
-            if ($record->department_name !== $user->department_name) {
-                return false;
-            }
-
-            return in_array($record->status, [
-                'draft',
-                'revision_from_purchasing',
-                'revision_from_accounting',
-                'revision_from_gm',
-                'revision_to_requester_from_accounting',
-                'revision_to_requester_from_gm',
-            ], true);
+            return in_array($record->status, static::financialControllerEditableStatuses(), true);
         }
 
         return false;
     }
 
     public static function canDelete(Model $record): bool
+    {
+        return false;
+    }
+
+    public static function canDeleteAny(): bool
     {
         return false;
     }

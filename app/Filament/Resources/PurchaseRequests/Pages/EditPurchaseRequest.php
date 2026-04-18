@@ -358,7 +358,6 @@ class EditPurchaseRequest extends EditRecord
                 ->visible(fn() => $this->canGmApprove())
                 ->action(function () {
                     $this->record->status = 'gm_approved';
-                    $this->record->approved_at = now();
                     $this->record->save();
 
                     $this->record->markActivity();
@@ -378,7 +377,6 @@ class EditPurchaseRequest extends EditRecord
 
                     $this->refreshFormData([
                         'status',
-                        'approved_at',
                         'current_status_at',
                         'last_activity_at',
                         'last_reminder_sent_at',
@@ -549,27 +547,124 @@ class EditPurchaseRequest extends EditRecord
                 ->visible(fn() => $this->canGmReturn()),
 
             ActionGroup::make([
-                Action::make('markWaitingPaymentByFc')
-                    ->label('Mark Waiting Payment')
+                Action::make('markPendingByFc')
+                    ->label('Pending')
                     ->icon('heroicon-m-clock')
-                    ->color('warning')
+                    ->color('gray')
                     ->requiresConfirmation()
-                    ->visible(fn() => $this->canFinancialControllerUpdate())
+                    ->visible(fn() => $this->canFinancialControllerUpdate()
+                        && in_array($this->record->status, [
+                            'gm_approved',
+                            'on_hold_by_fc',
+
+                            'pending',
+                            'on_progress',
+                            'waiting_payment',
+                            'paid_to_vendor',
+                            'on_shipping',
+
+                            'pending_by_fc',
+                            'on_progress_by_fc',
+                            'waiting_payment_by_fc',
+                            'paid_to_vendor_by_fc',
+                            'on_shipping_by_fc',
+                            'item_arrived_by_fc',
+                        ], true))
                     ->action(function () {
-                        $this->record->status = 'waiting_payment_by_fc';
+                        $this->record->status = 'pending';
                         $this->record->save();
 
                         $this->record->markActivity();
 
                         $this->record->logs()->create([
                             'user_id' => Auth::id(),
-                            'action' => 'waiting_payment_by_fc',
-                            'message' => 'Purchase request marked as waiting for payment by Financial Controller.',
+                            'action' => 'pending',
+                            'message' => 'Purchase request marked as pending by Financial Controller.',
                         ]);
 
                         Notification::make()
                             ->success()
-                            ->title('Purchase request marked as waiting for payment.')
+                            ->title('Purchase request marked as pending.')
+                            ->send();
+
+                        $this->refreshFormData([
+                            'status',
+                            'current_status_at',
+                            'last_activity_at',
+                            'last_reminder_sent_at',
+                        ]);
+                    }),
+
+                Action::make('markOnProgressByFc')
+                    ->label('On Progress')
+                    ->icon('heroicon-m-arrow-path')
+                    ->color('info')
+                    ->requiresConfirmation()
+                    ->visible(fn() => $this->canFinancialControllerUpdate()
+                        && in_array($this->record->status, [
+                            'gm_approved',
+                            'pending',
+                            'waiting_payment',
+                            'on_hold_by_fc',
+
+                            'pending_by_fc',
+                            'waiting_payment_by_fc',
+                        ], true))
+                    ->action(function () {
+                        $this->record->status = 'on_progress';
+                        $this->record->save();
+
+                        $this->record->markActivity();
+
+                        $this->record->logs()->create([
+                            'user_id' => Auth::id(),
+                            'action' => 'on_progress',
+                            'message' => 'Purchase request marked as on progress by Financial Controller.',
+                        ]);
+
+                        Notification::make()
+                            ->success()
+                            ->title('Purchase request marked as on progress.')
+                            ->send();
+
+                        $this->refreshFormData([
+                            'status',
+                            'current_status_at',
+                            'last_activity_at',
+                            'last_reminder_sent_at',
+                        ]);
+                    }),
+
+                Action::make('markWaitingPaymentByFc')
+                    ->label('Waiting Payment')
+                    ->icon('heroicon-m-clock')
+                    ->color('warning')
+                    ->requiresConfirmation()
+                    ->visible(fn() => $this->canFinancialControllerUpdate()
+                        && in_array($this->record->status, [
+                            'gm_approved',
+                            'pending',
+                            'on_progress',
+                            'on_hold_by_fc',
+
+                            'pending_by_fc',
+                            'on_progress_by_fc',
+                        ], true))
+                    ->action(function () {
+                        $this->record->status = 'waiting_payment';
+                        $this->record->save();
+
+                        $this->record->markActivity();
+
+                        $this->record->logs()->create([
+                            'user_id' => Auth::id(),
+                            'action' => 'waiting_payment',
+                            'message' => 'Purchase request marked as waiting payment by Financial Controller.',
+                        ]);
+
+                        Notification::make()
+                            ->success()
+                            ->title('Purchase request marked as waiting payment.')
                             ->send();
 
                         $this->refreshFormData([
@@ -581,20 +676,30 @@ class EditPurchaseRequest extends EditRecord
                     }),
 
                 Action::make('markPaidToVendorByFc')
-                    ->label('Mark Paid to Vendor')
+                    ->label('Paid to Vendor')
                     ->icon('heroicon-m-banknotes')
-                    ->color('success')
+                    ->color('info')
                     ->requiresConfirmation()
-                    ->visible(fn() => $this->canFinancialControllerUpdate())
+                    ->visible(fn() => $this->canFinancialControllerUpdate()
+                        && in_array($this->record->status, [
+                            'pending',
+                            'on_progress',
+                            'waiting_payment',
+                            'on_hold_by_fc',
+
+                            'pending_by_fc',
+                            'on_progress_by_fc',
+                            'waiting_payment_by_fc',
+                        ], true))
                     ->action(function () {
-                        $this->record->status = 'paid_to_vendor_by_fc';
+                        $this->record->status = 'paid_to_vendor';
                         $this->record->save();
 
                         $this->record->markActivity();
 
                         $this->record->logs()->create([
                             'user_id' => Auth::id(),
-                            'action' => 'paid_to_vendor_by_fc',
+                            'action' => 'paid_to_vendor',
                             'message' => 'Purchase request marked as paid to vendor by Financial Controller.',
                         ]);
 
@@ -611,27 +716,36 @@ class EditPurchaseRequest extends EditRecord
                         ]);
                     }),
 
-                Action::make('markItemArrivedByFc')
-                    ->label('Mark Item Arrived')
+                Action::make('markOnShippingByFc')
+                    ->label('On Shipping')
                     ->icon('heroicon-m-truck')
-                    ->color('info')
+                    ->color('success')
                     ->requiresConfirmation()
-                    ->visible(fn() => $this->canFinancialControllerUpdate())
+                    ->visible(fn() => $this->canFinancialControllerUpdate()
+                        && in_array($this->record->status, [
+                            'paid_to_vendor',
+                            'on_progress',
+                            'on_hold_by_fc',
+
+                            'paid_to_vendor_by_fc',
+                            'on_progress_by_fc',
+                            'item_arrived_by_fc',
+                        ], true))
                     ->action(function () {
-                        $this->record->status = 'item_arrived_by_fc';
+                        $this->record->status = 'on_shipping';
                         $this->record->save();
 
                         $this->record->markActivity();
 
                         $this->record->logs()->create([
                             'user_id' => Auth::id(),
-                            'action' => 'item_arrived_by_fc',
-                            'message' => 'Purchase request marked as item arrived by Financial Controller.',
+                            'action' => 'on_shipping',
+                            'message' => 'Purchase request marked as on shipping by Financial Controller.',
                         ]);
 
                         Notification::make()
                             ->success()
-                            ->title('Purchase request marked as item arrived.')
+                            ->title('Purchase request marked as on shipping.')
                             ->send();
 
                         $this->refreshFormData([
@@ -643,20 +757,27 @@ class EditPurchaseRequest extends EditRecord
                     }),
 
                 Action::make('markReceivedByRequesterByFc')
-                    ->label('Mark Received by Requester')
+                    ->label('Received by Requester (Done)')
                     ->icon('heroicon-m-check-badge')
                     ->color('success')
                     ->requiresConfirmation()
-                    ->visible(fn() => $this->canFinancialControllerUpdate())
+                    ->visible(fn() => $this->canFinancialControllerUpdate()
+                        && in_array($this->record->status, [
+                            'on_shipping',
+                            'on_hold_by_fc',
+
+                            'on_shipping_by_fc',
+                            'item_arrived_by_fc',
+                        ], true))
                     ->action(function () {
-                        $this->record->status = 'received_by_requester_by_fc';
+                        $this->record->status = 'received_by_requester';
                         $this->record->save();
 
                         $this->record->markActivity();
 
                         $this->record->logs()->create([
                             'user_id' => Auth::id(),
-                            'action' => 'received_by_requester_by_fc',
+                            'action' => 'received_by_requester',
                             'message' => 'Purchase request marked as received by requester by Financial Controller.',
                         ]);
 
@@ -677,7 +798,22 @@ class EditPurchaseRequest extends EditRecord
                     ->label('Hold')
                     ->icon('heroicon-m-pause-circle')
                     ->color('gray')
-                    ->visible(fn() => $this->canFinancialControllerUpdate())
+                    ->visible(fn() => $this->canFinancialControllerUpdate()
+                        && in_array($this->record->status, [
+                            'gm_approved',
+                            'pending',
+                            'on_progress',
+                            'waiting_payment',
+                            'paid_to_vendor',
+                            'on_shipping',
+
+                            'pending_by_fc',
+                            'on_progress_by_fc',
+                            'waiting_payment_by_fc',
+                            'paid_to_vendor_by_fc',
+                            'on_shipping_by_fc',
+                            'item_arrived_by_fc',
+                        ], true))
                     ->form([
                         Textarea::make('message')
                             ->label('Hold Message')
@@ -708,8 +844,61 @@ class EditPurchaseRequest extends EditRecord
                             'last_reminder_sent_at',
                         ]);
                     }),
+
+                Action::make('cancelByFinancialController')
+                    ->label('Cancel')
+                    ->icon('heroicon-m-x-circle')
+                    ->color('danger')
+                    ->requiresConfirmation()
+                    ->form([
+                        Textarea::make('message')
+                            ->label('Cancel Message')
+                            ->required()
+                            ->rows(4),
+                    ])
+                    ->visible(fn() => $this->canFinancialControllerUpdate()
+                        && in_array($this->record->status, [
+                            'gm_approved',
+                            'pending',
+                            'on_progress',
+                            'waiting_payment',
+                            'paid_to_vendor',
+                            'on_shipping',
+                            'on_hold_by_fc',
+
+                            'pending_by_fc',
+                            'on_progress_by_fc',
+                            'waiting_payment_by_fc',
+                            'paid_to_vendor_by_fc',
+                            'on_shipping_by_fc',
+                            'item_arrived_by_fc',
+                        ], true))
+                    ->action(function (array $data) {
+                        $this->record->status = 'cancelled';
+                        $this->record->save();
+
+                        $this->record->markActivity();
+
+                        $this->record->logs()->create([
+                            'user_id' => Auth::id(),
+                            'action' => 'cancelled',
+                            'message' => $data['message'],
+                        ]);
+
+                        Notification::make()
+                            ->success()
+                            ->title('Purchase request cancelled.')
+                            ->send();
+
+                        $this->refreshFormData([
+                            'status',
+                            'current_status_at',
+                            'last_activity_at',
+                            'last_reminder_sent_at',
+                        ]);
+                    }),
             ])
-                ->label('Financial Controller Actions')
+                ->label('FC Actions')
                 ->button()
                 ->color('gray')
                 ->icon('heroicon-m-ellipsis-horizontal')
@@ -1117,9 +1306,11 @@ class EditPurchaseRequest extends EditRecord
             return ! in_array($this->record->status, [
                 'approved',
                 'gm_approved',
+                'pending_by_fc',
+                'on_progress_by_fc',
                 'waiting_payment_by_fc',
                 'paid_to_vendor_by_fc',
-                'item_arrived_by_fc',
+                'on_shipping_by_fc',
                 'received_by_requester_by_fc',
                 'on_hold_by_fc',
                 'rejected',
@@ -1251,27 +1442,36 @@ class EditPurchaseRequest extends EditRecord
             return false;
         }
 
+        $allowedStatuses = [
+            'gm_approved',
+
+            // new statuses
+            'pending',
+            'on_progress',
+            'waiting_payment',
+            'paid_to_vendor',
+            'on_shipping',
+
+            // legacy compatibility
+            'pending_by_fc',
+            'on_progress_by_fc',
+            'waiting_payment_by_fc',
+            'paid_to_vendor_by_fc',
+            'on_shipping_by_fc',
+            'item_arrived_by_fc',
+
+            'on_hold_by_fc',
+        ];
+
         if ($user->isAdmin()) {
-            return in_array($this->record->status, [
-                'gm_approved',
-                'waiting_payment_by_fc',
-                'paid_to_vendor_by_fc',
-                'item_arrived_by_fc',
-                'on_hold_by_fc',
-            ], true);
+            return in_array($this->record->status, $allowedStatuses, true);
         }
 
-        if (! ($this->isFinancialControllerUser($user) || $user->isAccounting())) {
+        if (! $this->isFinancialControllerUser($user)) {
             return false;
         }
 
-        return in_array($this->record->status, [
-            'gm_approved',
-            'waiting_payment_by_fc',
-            'paid_to_vendor_by_fc',
-            'item_arrived_by_fc',
-            'on_hold_by_fc',
-        ], true);
+        return in_array($this->record->status, $allowedStatuses, true);
     }
 
     protected function generateRequestNumber(PurchaseRequest $record): string
