@@ -25,6 +25,7 @@ class NeedsAttentionPurchaseRequests extends TableWidget
         return $table
             ->query($this->getTableQuery())
             ->defaultPaginationPageOption(10)
+            ->paginated([10, 25, 50])
             ->columns([
                 TextColumn::make('request_number')
                     ->label('PR')
@@ -35,7 +36,7 @@ class NeedsAttentionPurchaseRequests extends TableWidget
                     ->label('Requester')
                     ->searchable()
                     ->limit(20)
-                    ->tooltip(fn(PurchaseRequest $record) => $record->requester_name),
+                    ->tooltip(fn(PurchaseRequest $record): ?string => $record->requester_name),
 
                 TextColumn::make('department_name')
                     ->label('Department')
@@ -48,12 +49,17 @@ class NeedsAttentionPurchaseRequests extends TableWidget
                     ->searchable()
                     ->wrap()
                     ->limit(40)
-                    ->tooltip(fn(PurchaseRequest $record) => $record->title),
+                    ->tooltip(fn(PurchaseRequest $record): ?string => $record->title),
 
                 TextColumn::make('priority')
+                    ->label('Priority')
                     ->badge()
-                    ->formatStateUsing(fn(?string $state) => $state ? ucfirst($state) : '-')
-                    ->color(fn(?string $state) => match ($state) {
+                    ->formatStateUsing(fn(?string $state): string => match ($state) {
+                        'urgent' => 'Urgent',
+                        'normal' => 'Normal',
+                        default => '-',
+                    })
+                    ->color(fn(?string $state): string => match ($state) {
                         'urgent' => 'danger',
                         'normal' => 'info',
                         default => 'gray',
@@ -308,23 +314,16 @@ class NeedsAttentionPurchaseRequests extends TableWidget
             'revision_to_accounting_from_gm' => 'Back to Accounting',
             'revision_to_requester_from_gm' => 'Back to Requester',
             'on_hold_by_gm' => 'Hold GM',
-            'gm_approved' => 'To Financial Controller',
+            'gm_approved' => 'New from GM',
 
-            'pending' => 'Pending',
-            'on_progress' => 'On Progress',
-            'waiting_payment' => 'Waiting Payment',
-            'paid_to_vendor' => 'Paid to Vendor',
-            'on_shipping' => 'On Shipping',
-            'received_by_requester' => 'Received by Requester (Done)',
-
-            'pending_by_fc' => 'Pending',
-            'on_progress_by_fc' => 'On Progress',
-            'waiting_payment_by_fc' => 'Waiting Payment',
-            'paid_to_vendor_by_fc' => 'Paid to Vendor',
-            'on_shipping_by_fc' => 'On Shipping',
-            'item_arrived_by_fc' => 'On Shipping',
-            'received_by_requester_by_fc' => 'Received by Requester (Done)',
-            'on_hold_by_fc' => 'Hold Financial Controller',
+            'pending', 'pending_by_fc' => 'Pending',
+            'on_progress', 'on_progress_by_fc' => 'On Progress',
+            'waiting_payment', 'waiting_payment_by_fc' => 'Waiting Payment',
+            'paid_to_vendor', 'paid_to_vendor_by_fc' => 'Paid to Vendor',
+            'on_shipping', 'on_shipping_by_fc' => 'On Shipping',
+            'item_arrived_by_fc' => 'On Shipping / Handover',
+            'on_hold_by_fc' => 'On Hold',
+            'received_by_requester', 'received_by_requester_by_fc' => 'Completed',
 
             'approved' => 'Approved',
             'rejected' => 'Rejected',
@@ -346,10 +345,14 @@ class NeedsAttentionPurchaseRequests extends TableWidget
             'revision_to_purchasing_from_gm',
             'revision_to_accounting_from_gm',
             'gm_approved',
-            'pending',
-            'pending_by_fc',
             'waiting_payment',
             'waiting_payment_by_fc' => 'warning',
+
+            'pending',
+            'pending_by_fc',
+            'on_hold_by_accounting',
+            'on_hold_by_gm',
+            'on_hold_by_fc' => 'gray',
 
             'on_progress',
             'on_progress_by_fc',
@@ -370,10 +373,6 @@ class NeedsAttentionPurchaseRequests extends TableWidget
             'revision_to_requester_from_gm',
             'rejected',
             'cancelled' => 'danger',
-
-            'on_hold_by_accounting',
-            'on_hold_by_gm',
-            'on_hold_by_fc' => 'gray',
 
             default => 'gray',
         };

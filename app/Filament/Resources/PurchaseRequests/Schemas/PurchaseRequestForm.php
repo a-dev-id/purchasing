@@ -65,7 +65,7 @@ class PurchaseRequestForm
         return static::getCurrentUser()?->department_name;
     }
 
-    protected static function getLatestRevisionMessage(?PurchaseRequest $record): ?string
+    protected static function getLatestWorkflowNoteLog(?PurchaseRequest $record)
     {
         if (! $record) {
             return null;
@@ -80,6 +80,12 @@ class PurchaseRequestForm
             'revision_to_purchasing_from_gm' => 'revision_to_purchasing_from_gm',
             'revision_to_accounting_from_gm' => 'revision_to_accounting_from_gm',
             'revision_to_requester_from_gm' => 'revision_to_requester_from_gm',
+            'on_hold_by_accounting' => 'on_hold_by_accounting',
+            'on_hold_by_gm' => 'on_hold_by_gm',
+            'on_hold_by_fc' => 'on_hold_by_fc',
+            'pending' => 'pending',
+            'cancelled' => 'cancelled',
+            'received_by_requester' => 'received_by_requester',
         ];
 
         $currentAction = $statusActionMap[$record->status] ?? null;
@@ -94,7 +100,7 @@ class PurchaseRequestForm
                 ->first();
 
             if ($currentLog) {
-                return $currentLog->message;
+                return $currentLog;
             }
         }
 
@@ -106,8 +112,35 @@ class PurchaseRequestForm
             ->latest('id')
             ->first();
 
-        return $fallbackLog?->message;
+        return $fallbackLog;
     }
+
+    protected static function getLatestWorkflowNoteMessage(?PurchaseRequest $record): ?string
+    {
+        return static::getLatestWorkflowNoteLog($record)?->message;
+    }
+
+    protected static function getLatestWorkflowNoteMeta(?PurchaseRequest $record): ?string
+    {
+        $log = static::getLatestWorkflowNoteLog($record);
+
+        if (! $log) {
+            return null;
+        }
+
+        $metaParts = [];
+
+        if (filled($log->user_name)) {
+            $metaParts[] = 'By ' . $log->user_name;
+        }
+
+        if (filled($log->acted_at)) {
+            $metaParts[] = 'on ' . $log->acted_at->format('d M Y H:i');
+        }
+
+        return empty($metaParts) ? null : implode(' ', $metaParts);
+    }
+
 
     protected static function canShowVendorOffers(?PurchaseRequest $record): bool
     {
@@ -362,18 +395,19 @@ class PurchaseRequestForm
     {
         return $schema
             ->components([
-                Section::make('Revision Notes')
+                Section::make('Workflow Notes')
                     ->schema([
-                        Textarea::make('latest_revision_note')
-                            ->label('Latest Revision Note')
+                        Textarea::make('latest_workflow_note')
+                            ->label('Latest Workflow Note')
                             ->rows(4)
                             ->disabled()
                             ->dehydrated(false)
+                            ->helperText(fn(?PurchaseRequest $record): ?string => static::getLatestWorkflowNoteMeta($record))
                             ->afterStateHydrated(function (Textarea $component, ?PurchaseRequest $record) {
-                                $component->state(static::getLatestRevisionMessage($record));
+                                $component->state(static::getLatestWorkflowNoteMessage($record));
                             }),
                     ])
-                    ->visible(fn(?PurchaseRequest $record): bool => filled(static::getLatestRevisionMessage($record)))
+                    ->visible(fn(?PurchaseRequest $record): bool => filled(static::getLatestWorkflowNoteMessage($record)))
                     ->columnSpanFull(),
 
                 Section::make('Request Information')
@@ -411,6 +445,15 @@ class PurchaseRequestForm
                             ->native(false)
                             ->displayFormat('d M Y')
                             ->required(),
+
+                        TextInput::make('received_at_display')
+                            ->label('Date Received')
+                            ->disabled()
+                            ->dehydrated(false)
+                            ->afterStateHydrated(function (TextInput $component, ?PurchaseRequest $record): void {
+                                $component->state($record?->received_at?->format('d M Y H:i'));
+                            })
+                            ->visible(fn(?PurchaseRequest $record): bool => filled($record?->received_at)),
 
                         Select::make('vendor_comparison_mode')
                             ->label('Vendor Comparison Mode')

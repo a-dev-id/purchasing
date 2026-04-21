@@ -25,16 +25,18 @@ class PurchaseRequest extends Model
         'approved_at',
         'cancelled_at',
         'vendor_comparison_mode',
+        'received_at',
     ];
 
     protected $casts = [
+        'date_needed' => 'date',
         'current_status_at' => 'datetime',
         'last_activity_at' => 'datetime',
         'last_reminder_sent_at' => 'datetime',
         'submitted_at' => 'datetime',
         'approved_at' => 'datetime',
         'cancelled_at' => 'datetime',
-        'date_needed' => 'date',
+        'received_at' => 'datetime',
     ];
 
     public function requester(): BelongsTo
