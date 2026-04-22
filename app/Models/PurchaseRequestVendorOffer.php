@@ -8,7 +8,7 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
 class PurchaseRequestVendorOffer extends Model
 {
     protected $fillable = [
-        'purchase_request_id',
+        'purchase_request_item_id',
         'vendor_id',
         'vendor_name',
         'category',
@@ -18,11 +18,10 @@ class PurchaseRequestVendorOffer extends Model
         'offer_total',
         'currency',
         'lead_time_days',
-        'offer_notes',
-        'quotation_file',
         'offer_rank',
         'is_selected_by_accounting',
-        'created_by',
+        'offer_notes',
+        'quotation_file',
     ];
 
     protected $casts = [

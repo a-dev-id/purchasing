@@ -16,11 +16,13 @@ class PurchaseRequestViewController extends Controller
             403
         );
 
-        $purchaseRequest->load([
-            'items.item',
-            'vendorOffers.vendor',
-            'logs' => fn($query) => $query->latest('acted_at'),
-        ]);
+        $purchaseRequest = PurchaseRequest::with([
+            'items.photos',
+            'items.item.photos',
+            'vendorOffers',
+            'items.vendorOffers',
+            'logs',
+        ])->findOrFail($purchaseRequest->id);
 
         return view('purchase-requests.view-form', [
             'purchaseRequest' => $purchaseRequest,

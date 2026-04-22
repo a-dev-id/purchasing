@@ -4,7 +4,9 @@
 <head>
     <meta charset="UTF-8">
     <title>
-        @if(!empty($isSubmittedToGm))
+        @if(!empty($isSubmittedToFinancialController))
+        Purchase Request Approved by GM - Sent to Financial Controller
+        @elseif(!empty($isSubmittedToGm))
         Purchase Request Submitted to GM
         @elseif(!empty($isReturnedToAccounting))
         Purchase Request Returned to Accounting
@@ -24,7 +26,9 @@
     <div style="max-width:700px; margin:40px auto; background:#ffffff; border:1px solid #e5e7eb; border-radius:12px; overflow:hidden;">
         <div style="padding:24px 32px; border-bottom:1px solid #e5e7eb;">
             <h2 style="margin:0; font-size:22px;">
-                @if(!empty($isSubmittedToGm))
+                @if(!empty($isSubmittedToFinancialController))
+                Purchase Request Approved by GM - Sent to Financial Controller
+                @elseif(!empty($isSubmittedToGm))
                 Purchase Request Submitted to GM
                 @elseif(!empty($isReturnedToAccounting))
                 Purchase Request Returned to Accounting
@@ -40,7 +44,9 @@
             </h2>
 
             <p style="margin:8px 0 0; color:#6b7280;">
-                @if(!empty($isSubmittedToGm))
+                @if(!empty($isSubmittedToFinancialController))
+                GM has approved this purchase request and it is now assigned to Financial Controller for payment and fulfillment follow-up.
+                @elseif(!empty($isSubmittedToGm))
                 Accounting has reviewed this purchase request and submitted it to GM for final approval.
                 @elseif(!empty($isReturnedToAccounting))
                 GM has returned this purchase request to Accounting for further review.
@@ -60,7 +66,9 @@
             <table style="width:100%; border-collapse:collapse;">
                 <tr>
                     <td style="padding:10px 0; width:180px; color:#6b7280;">PR Number</td>
-                    <td style="padding:10px 0; font-weight:600;">{{ $purchaseRequest->request_number }}</td>
+                    <td style="padding:10px 0; font-weight:600;">
+                        {{ $purchaseRequest->request_number ?: 'PR #' . $purchaseRequest->id }}
+                    </td>
                 </tr>
                 <tr>
                     <td style="padding:10px 0; color:#6b7280;">Requester Name</td>
@@ -79,9 +87,37 @@
                     <td style="padding:10px 0; font-weight:600;">{{ ucfirst($purchaseRequest->priority) }}</td>
                 </tr>
                 <tr>
+                    <td style="padding:10px 0; color:#6b7280;">Status</td>
+                    <td style="padding:10px 0; font-weight:600;">
+                        @if(!empty($isSubmittedToFinancialController))
+                        GM Approved / Sent to Financial Controller
+                        @elseif(!empty($isSubmittedToGm))
+                        Submitted to GM
+                        @elseif(!empty($isReturnedToAccounting))
+                        Returned to Accounting
+                        @elseif(!empty($isSubmittedToAccounting))
+                        Submitted to Accounting
+                        @elseif(!empty($isReturnedToPurchasing))
+                        Returned to Purchasing
+                        @elseif(!empty($isResubmission))
+                        Revised and Resubmitted
+                        @else
+                        Submitted to Purchasing
+                        @endif
+                    </td>
+                </tr>
+                <tr>
                     <td style="padding:10px 0; color:#6b7280;">Submitted At</td>
                     <td style="padding:10px 0; font-weight:600;">{{ optional($purchaseRequest->submitted_at)->format('d M Y H:i') }}</td>
                 </tr>
+
+                @if(!empty($isSubmittedToFinancialController) && !empty($purchaseRequest->approved_at))
+                <tr>
+                    <td style="padding:10px 0; color:#6b7280;">Approved At</td>
+                    <td style="padding:10px 0; font-weight:600;">{{ optional($purchaseRequest->approved_at)->format('d M Y H:i') }}</td>
+                </tr>
+                @endif
+
                 <tr>
                     <td style="padding:10px 0; color:#6b7280;">Items</td>
                     <td style="padding:10px 0; font-weight:600;">{{ $purchaseRequest->items()->count() }}</td>

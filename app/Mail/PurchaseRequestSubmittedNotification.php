@@ -57,9 +57,15 @@ class PurchaseRequestSubmittedNotification extends Mailable
         return $this->fromStatus === 'submitted_to_gm';
     }
 
+    protected function isSubmittedToFinancialController(): bool
+    {
+        return $this->fromStatus === 'gm_approved';
+    }
+
     protected function getSubjectPrefix(): string
     {
         return match (true) {
+            $this->isSubmittedToFinancialController() => 'Purchase Request Approved by GM - Sent to Financial Controller',
             $this->isSubmittedToGm() => 'Purchase Request Submitted to GM',
             $this->isReturnedToAccounting() => 'Purchase Request Returned to Accounting',
             $this->isSubmittedToAccounting() => 'Purchase Request Submitted to Accounting',
@@ -90,6 +96,7 @@ class PurchaseRequestSubmittedNotification extends Mailable
                 'isSubmittedToAccounting' => $this->isSubmittedToAccounting(),
                 'isReturnedToAccounting' => $this->isReturnedToAccounting(),
                 'isSubmittedToGm' => $this->isSubmittedToGm(),
+                'isSubmittedToFinancialController' => $this->isSubmittedToFinancialController(),
             ],
         );
     }

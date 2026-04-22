@@ -358,6 +358,7 @@ class EditPurchaseRequest extends EditRecord
                 ->visible(fn() => $this->canGmApprove())
                 ->action(function () {
                     $this->record->status = 'gm_approved';
+                    $this->record->approved_at = now();
                     $this->record->save();
 
                     $this->record->markActivity();
@@ -377,6 +378,7 @@ class EditPurchaseRequest extends EditRecord
 
                     $this->refreshFormData([
                         'status',
+                        'approved_at',
                         'current_status_at',
                         'last_activity_at',
                         'last_reminder_sent_at',
@@ -553,6 +555,7 @@ class EditPurchaseRequest extends EditRecord
                     icon: 'heroicon-m-clock',
                     color: 'gray',
                     status: 'pending',
+                    visibleStatuses: ['gm_approved', 'pending', 'on_progress', 'waiting_payment', 'on_hold_by_fc'],
                     noteLabel: 'Pending Note',
                     notePlaceholder: 'Write why this PR is still pending.',
                     noteRequired: true,
@@ -564,6 +567,7 @@ class EditPurchaseRequest extends EditRecord
                     icon: 'heroicon-m-arrow-path',
                     color: 'info',
                     status: 'on_progress',
+                    visibleStatuses: ['gm_approved', 'pending', 'on_progress', 'waiting_payment', 'paid_to_vendor', 'on_hold_by_fc'],
                     defaultMessage: 'Purchase request marked as on progress by Financial Controller.',
                 ),
 
@@ -573,6 +577,7 @@ class EditPurchaseRequest extends EditRecord
                     icon: 'heroicon-m-credit-card',
                     color: 'warning',
                     status: 'waiting_payment',
+                    visibleStatuses: ['gm_approved', 'pending', 'on_progress', 'waiting_payment', 'on_hold_by_fc'],
                     defaultMessage: 'Purchase request marked as waiting payment by Financial Controller.',
                 ),
 
@@ -582,6 +587,7 @@ class EditPurchaseRequest extends EditRecord
                     icon: 'heroicon-m-banknotes',
                     color: 'info',
                     status: 'paid_to_vendor',
+                    visibleStatuses: ['waiting_payment', 'on_progress', 'pending', 'paid_to_vendor', 'on_hold_by_fc'],
                     defaultMessage: 'Purchase request marked as paid to vendor by Financial Controller.',
                 ),
 
@@ -591,6 +597,7 @@ class EditPurchaseRequest extends EditRecord
                     icon: 'heroicon-m-truck',
                     color: 'success',
                     status: 'on_shipping',
+                    visibleStatuses: ['paid_to_vendor', 'on_shipping'],
                     defaultMessage: 'Purchase request marked as on shipping by Financial Controller.',
                 ),
 
@@ -600,6 +607,7 @@ class EditPurchaseRequest extends EditRecord
                     icon: 'heroicon-m-check-circle',
                     color: 'success',
                     status: 'received_by_requester',
+                    visibleStatuses: ['on_shipping', 'paid_to_vendor'],
                     noteLabel: 'Received Note',
                     notePlaceholder: 'Write the handover / receiving note for this PR.',
                     noteRequired: true,
@@ -612,6 +620,7 @@ class EditPurchaseRequest extends EditRecord
                     icon: 'heroicon-m-pause-circle',
                     color: 'gray',
                     status: 'on_hold_by_fc',
+                    visibleStatuses: ['gm_approved', 'pending', 'on_progress', 'waiting_payment', 'paid_to_vendor', 'on_shipping', 'on_hold_by_fc'],
                     noteLabel: 'Hold Note',
                     notePlaceholder: 'Write why this PR is on hold.',
                     noteRequired: true,
@@ -623,6 +632,7 @@ class EditPurchaseRequest extends EditRecord
                     icon: 'heroicon-m-x-circle',
                     color: 'danger',
                     status: 'cancelled',
+                    visibleStatuses: ['gm_approved', 'pending', 'on_progress', 'waiting_payment', 'paid_to_vendor', 'on_shipping', 'on_hold_by_fc'],
                     noteLabel: 'Cancel Note',
                     notePlaceholder: 'Write why this PR is cancelled.',
                     noteRequired: true,
@@ -853,7 +863,6 @@ class EditPurchaseRequest extends EditRecord
         ]);
     }
 
-
     protected function makeFinancialControllerAction(
         string $name,
         string $label,
@@ -943,6 +952,7 @@ class EditPurchaseRequest extends EditRecord
 
         $this->refreshFormData([
             'status',
+            'approved_at',
             'received_at',
             'cancelled_at',
             'current_status_at',
@@ -1023,6 +1033,7 @@ class EditPurchaseRequest extends EditRecord
             ...config('mail.purchasing_notification_emails', []),
             ...config('mail.accounting_notification_emails', []),
             ...config('mail.gm_notification_emails', []),
+            ...config('mail.financial_controller_notification_emails', []),
             ...config('mail.owner_notification_emails', []),
         ])
             ->filter()
@@ -1105,6 +1116,38 @@ class EditPurchaseRequest extends EditRecord
             && $user->isFinancialController();
     }
 
+    protected function getFinancialControllerEditableStatuses(): array
+    {
+        return [
+            'gm_approved',
+            'pending',
+            'on_progress',
+            'waiting_payment',
+            'paid_to_vendor',
+            'on_shipping',
+            'on_hold_by_fc',
+
+            // legacy compatibility
+            'pending_by_fc',
+            'on_progress_by_fc',
+            'waiting_payment_by_fc',
+            'paid_to_vendor_by_fc',
+            'on_shipping_by_fc',
+            'item_arrived_by_fc',
+        ];
+    }
+
+    protected function getFinancialControllerClosedStatuses(): array
+    {
+        return [
+            'received_by_requester',
+            'received_by_requester_by_fc',
+            'cancelled',
+            'rejected',
+            'approved',
+        ];
+    }
+
     protected function canRequesterSubmit(): bool
     {
         $user = $this->getCurrentUser();
@@ -1135,6 +1178,12 @@ class EditPurchaseRequest extends EditRecord
             return ! in_array($this->record->status, [
                 'approved',
                 'gm_approved',
+                'pending',
+                'on_progress',
+                'waiting_payment',
+                'paid_to_vendor',
+                'on_shipping',
+                'received_by_requester',
                 'pending_by_fc',
                 'on_progress_by_fc',
                 'waiting_payment_by_fc',
@@ -1271,36 +1320,19 @@ class EditPurchaseRequest extends EditRecord
             return false;
         }
 
-        $allowedStatuses = [
-            'gm_approved',
-
-            // new statuses
-            'pending',
-            'on_progress',
-            'waiting_payment',
-            'paid_to_vendor',
-            'on_shipping',
-
-            // legacy compatibility
-            'pending_by_fc',
-            'on_progress_by_fc',
-            'waiting_payment_by_fc',
-            'paid_to_vendor_by_fc',
-            'on_shipping_by_fc',
-            'item_arrived_by_fc',
-
-            'on_hold_by_fc',
-        ];
-
-        if ($user->isAdmin()) {
-            return in_array($this->record->status, $allowedStatuses, true);
-        }
-
-        if (! $this->isFinancialControllerUser($user)) {
+        if (in_array($this->record->status, $this->getFinancialControllerClosedStatuses(), true)) {
             return false;
         }
 
-        return in_array($this->record->status, $allowedStatuses, true);
+        if (! in_array($this->record->status, $this->getFinancialControllerEditableStatuses(), true)) {
+            return false;
+        }
+
+        if ($user->isAdmin()) {
+            return true;
+        }
+
+        return $this->isFinancialControllerUser($user);
     }
 
     protected function generateRequestNumber(PurchaseRequest $record): string

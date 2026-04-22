@@ -15,6 +15,7 @@ use Filament\Tables\Columns\TextColumn;
 use Filament\Tables\Table;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Mail;
+use Filament\Actions\DeleteAction;
 
 class PurchaseRequestsTable
 {
@@ -25,6 +26,7 @@ class PurchaseRequestsTable
                 TextColumn::make('request_number')
                     ->label('PR')
                     ->searchable()
+                    ->sortable()
                     ->placeholder('Draft')
                     ->copyable()
                     ->toggleable(),
@@ -34,14 +36,15 @@ class PurchaseRequestsTable
                     ->searchable()
                     ->sortable()
                     ->limit(16)
-                    ->tooltip(fn($record) => $record->requester_name)
+                    ->tooltip(fn(PurchaseRequest $record): ?string => $record->requester_name)
                     ->toggleable(),
 
                 TextColumn::make('title')
                     ->label('Request')
                     ->searchable()
-                    ->limit(18)
-                    ->tooltip(fn($record) => $record->title)
+                    ->sortable()
+                    ->limit(22)
+                    ->tooltip(fn(PurchaseRequest $record): ?string => $record->title)
                     ->toggleable(),
 
                 TextColumn::make('department_name')
@@ -52,8 +55,12 @@ class PurchaseRequestsTable
 
                 TextColumn::make('priority')
                     ->badge()
-                    ->formatStateUsing(fn(string $state): string => ucfirst($state))
-                    ->color(fn(string $state): string => match ($state) {
+                    ->formatStateUsing(fn(?string $state): string => match ($state) {
+                        'urgent' => 'Urgent',
+                        'normal' => 'Normal',
+                        default => '-',
+                    })
+                    ->color(fn(?string $state): string => match ($state) {
                         'urgent' => 'danger',
                         'normal' => 'info',
                         default => 'gray',
@@ -65,20 +72,24 @@ class PurchaseRequestsTable
                     ->badge()
                     ->formatStateUsing(fn(?string $state): string => match ($state) {
                         'draft' => 'Draft',
+
                         'submitted' => 'To Purchasing',
-                        'revision_from_purchasing' => 'Rev. Purchasing',
+                        'revision_from_purchasing' => 'Returned by Purchasing',
+
                         'submitted_to_accounting' => 'To Accounting',
-                        'revision_from_accounting' => 'Rev. Accounting',
+                        'revision_from_accounting' => 'Returned by Accounting',
                         'revision_to_purchasing_from_accounting' => 'Back to Purchasing',
                         'revision_to_requester_from_accounting' => 'Back to Requester',
                         'on_hold_by_accounting' => 'Hold Accounting',
+
                         'submitted_to_gm' => 'To GM',
-                        'revision_from_gm' => 'Rev. GM',
+                        'revision_from_gm' => 'Returned by GM',
                         'revision_to_purchasing_from_gm' => 'Back to Purchasing',
                         'revision_to_accounting_from_gm' => 'Back to Accounting',
                         'revision_to_requester_from_gm' => 'Back to Requester',
                         'on_hold_by_gm' => 'Hold GM',
-                        'gm_approved' => 'To Financial Controller',
+
+                        'gm_approved' => 'GM Approved',
 
                         // Current FC flow
                         'pending' => 'Pending',
@@ -87,7 +98,7 @@ class PurchaseRequestsTable
                         'paid_to_vendor' => 'Paid to Vendor',
                         'on_shipping' => 'On Shipping',
                         'received_by_requester' => 'Received by Requester (Done)',
-                        'cancelled' => 'Cancelled',
+                        'on_hold_by_fc' => 'Hold FC',
 
                         // Legacy FC flow compatibility
                         'pending_by_fc' => 'Pending',
@@ -97,10 +108,11 @@ class PurchaseRequestsTable
                         'on_shipping_by_fc' => 'On Shipping',
                         'item_arrived_by_fc' => 'On Shipping',
                         'received_by_requester_by_fc' => 'Received by Requester (Done)',
-                        'on_hold_by_fc' => 'Hold FC',
 
                         'approved' => 'Approved',
                         'rejected' => 'Rejected',
+                        'cancelled' => 'Cancelled',
+
                         null, '' => '-',
                         default => str($state)->replace('_', ' ')->title(),
                     })
@@ -150,21 +162,25 @@ class PurchaseRequestsTable
                 TextColumn::make('current_desk')
                     ->label('Desk')
                     ->badge()
-                    ->state(fn($record) => match ($record->status) {
+                    ->state(fn(PurchaseRequest $record): string => match ($record->status) {
                         'draft' => 'Requester',
+
                         'submitted' => 'Purchasing',
                         'revision_from_purchasing' => 'Requester',
+
                         'submitted_to_accounting' => 'Accounting',
                         'revision_from_accounting' => 'Requester',
                         'revision_to_purchasing_from_accounting' => 'Purchasing',
                         'revision_to_requester_from_accounting' => 'Requester',
                         'on_hold_by_accounting' => 'Accounting',
+
                         'submitted_to_gm' => 'GM',
                         'revision_from_gm' => 'Requester',
                         'revision_to_purchasing_from_gm' => 'Purchasing',
                         'revision_to_accounting_from_gm' => 'Accounting',
                         'revision_to_requester_from_gm' => 'Requester',
                         'on_hold_by_gm' => 'GM',
+
                         'gm_approved' => 'Financial Controller',
 
                         // Current FC flow
@@ -173,6 +189,7 @@ class PurchaseRequestsTable
                         'waiting_payment' => 'Financial Controller',
                         'paid_to_vendor' => 'Financial Controller',
                         'on_shipping' => 'Financial Controller',
+                        'on_hold_by_fc' => 'Financial Controller',
                         'received_by_requester' => 'Done',
 
                         // Legacy FC flow compatibility
@@ -183,11 +200,11 @@ class PurchaseRequestsTable
                         'on_shipping_by_fc' => 'Financial Controller',
                         'item_arrived_by_fc' => 'Financial Controller',
                         'received_by_requester_by_fc' => 'Done',
-                        'on_hold_by_fc' => 'Financial Controller',
 
                         'approved' => 'Done',
                         'rejected' => 'Stopped',
                         'cancelled' => 'Cancelled',
+
                         default => '-',
                     })
                     ->color(fn(string $state): string => match ($state) {
@@ -216,10 +233,11 @@ class PurchaseRequestsTable
                     ->placeholder('-')
                     ->toggleable(),
 
-                TextColumn::make('updated_at')
-                    ->label('Updated')
+                TextColumn::make('current_status_at')
+                    ->label('Last Update')
                     ->dateTime('d M H:i')
                     ->sortable()
+                    ->placeholder('-')
                     ->toggleable(),
             ])
             ->defaultSort('id', 'desc')
@@ -245,6 +263,13 @@ class PurchaseRequestsTable
 
                 EditAction::make()
                     ->visible(fn(PurchaseRequest $record): bool => PurchaseRequestResource::canEdit($record)),
+
+                DeleteAction::make()
+                    ->label('Delete')
+                    ->requiresConfirmation()
+                    ->modalHeading('Delete Purchase Request')
+                    ->modalDescription('This action will permanently delete this purchase request.')
+                    ->visible(fn(PurchaseRequest $record): bool => PurchaseRequestResource::canDelete($record)),
             ]);
     }
 
@@ -303,6 +328,10 @@ class PurchaseRequestsTable
 
         $record->save();
 
+        if (method_exists($record, 'markActivity')) {
+            $record->markActivity();
+        }
+
         $user = static::getCurrentUser();
 
         PurchaseRequestLog::create([
@@ -313,7 +342,7 @@ class PurchaseRequestsTable
             'action' => 'submitted',
             'from_status' => $fromStatus,
             'to_status' => 'submitted',
-            'message' => 'Submitted by requester to Purchasing: ' . $record->requester_name,
+            'message' => 'Submitted by requester: ' . $record->requester_name . ' to Purchasing',
             'meta' => [
                 'request_number' => $record->request_number,
                 'requester_name' => $record->requester_name,

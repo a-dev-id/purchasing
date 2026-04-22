@@ -224,12 +224,15 @@ class PurchaseRequestResource extends Resource
             'waiting_payment',
             'paid_to_vendor',
             'on_shipping',
+            'on_hold_by_fc',
 
             // legacy compatibility
+            'pending_by_fc',
+            'on_progress_by_fc',
             'waiting_payment_by_fc',
             'paid_to_vendor_by_fc',
+            'on_shipping_by_fc',
             'item_arrived_by_fc',
-            'on_hold_by_fc',
         ];
     }
 
@@ -243,12 +246,15 @@ class PurchaseRequestResource extends Resource
             'waiting_payment',
             'paid_to_vendor',
             'on_shipping',
+            'on_hold_by_fc',
 
             // legacy compatibility
+            'pending_by_fc',
+            'on_progress_by_fc',
             'waiting_payment_by_fc',
             'paid_to_vendor_by_fc',
+            'on_shipping_by_fc',
             'item_arrived_by_fc',
-            'on_hold_by_fc',
         ];
     }
 
@@ -381,11 +387,35 @@ class PurchaseRequestResource extends Resource
 
     public static function canDelete(Model $record): bool
     {
+        $user = static::getCurrentUser();
+
+        if (! $user || ! $record instanceof PurchaseRequest) {
+            return false;
+        }
+
+        if (static::isAdminUser($user)) {
+            return true;
+        }
+
+        if (static::isRequesterUser($user)) {
+            return $record->department_name === $user->department_name
+                && in_array($record->status, [
+                    'draft',
+                    'cancelled',
+                ], true);
+        }
+
         return false;
     }
 
     public static function canDeleteAny(): bool
     {
-        return false;
+        $user = static::getCurrentUser();
+
+        if (! $user) {
+            return false;
+        }
+
+        return static::isAdminUser($user) || static::isRequesterUser($user);
     }
 }

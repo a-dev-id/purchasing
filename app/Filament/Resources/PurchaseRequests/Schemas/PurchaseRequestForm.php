@@ -21,6 +21,9 @@ use Filament\Schemas\Schema;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Str;
 
+use Filament\Schemas\Components\View;
+
+
 class PurchaseRequestForm
 {
     protected static function getCurrentUser(): ?User
@@ -28,6 +31,11 @@ class PurchaseRequestForm
         $user = Auth::user();
 
         return $user instanceof User ? $user : null;
+    }
+
+    protected static function getUserRole(): string
+    {
+        return strtolower(trim((string) (static::getCurrentUser()?->role ?? '')));
     }
 
     protected static function isRequesterUser(): bool
@@ -55,14 +63,79 @@ class PurchaseRequestForm
         return static::getCurrentUser()?->isGm() ?? false;
     }
 
+    protected static function isFinancialControllerUser(): bool
+    {
+        $user = static::getCurrentUser();
+        $role = static::getUserRole();
+
+        if (in_array($role, [
+            'financial_controller',
+            'financial-controller',
+            'financial controller',
+            'fc',
+            'cost_controller',
+            'cost-controller',
+            'cost controller',
+        ], true)) {
+            return true;
+        }
+
+        return $user instanceof User
+            && method_exists($user, 'isFinancialController')
+            && $user->isFinancialController();
+    }
+
     protected static function canSelectFinalVendor(): bool
     {
-        return static::isAccountingUser();
+        return static::isAccountingUser()
+            || static::isFinancialControllerUser()
+            || static::isAdminUser();
+    }
+
+    protected static function canEditVendorOffers(?PurchaseRequest $record): bool
+    {
+        if (static::isAdminUser()) {
+            return true;
+        }
+
+        if (static::isPurchasingUser()) {
+            return true;
+        }
+
+        if (static::isAccountingUser()) {
+            return true;
+        }
+
+        return false;
     }
 
     protected static function getCurrentDepartmentName(): ?string
     {
         return static::getCurrentUser()?->department_name;
+    }
+
+    protected static function hasAnyVendorOffers(?PurchaseRequest $record): bool
+    {
+        if (! $record) {
+            return false;
+        }
+
+        $record->loadMissing([
+            'vendorOffers',
+            'items.vendorOffers',
+        ]);
+
+        if ($record->vendorOffers->isNotEmpty()) {
+            return true;
+        }
+
+        foreach ($record->items as $item) {
+            if ($item->vendorOffers->isNotEmpty()) {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     protected static function getLatestWorkflowNoteLog(?PurchaseRequest $record)
@@ -83,9 +156,23 @@ class PurchaseRequestForm
             'on_hold_by_accounting' => 'on_hold_by_accounting',
             'on_hold_by_gm' => 'on_hold_by_gm',
             'on_hold_by_fc' => 'on_hold_by_fc',
+            'gm_approved' => 'gm_approved',
             'pending' => 'pending',
+            'on_progress' => 'on_progress',
+            'waiting_payment' => 'waiting_payment',
+            'paid_to_vendor' => 'paid_to_vendor',
+            'on_shipping' => 'on_shipping',
             'cancelled' => 'cancelled',
             'received_by_requester' => 'received_by_requester',
+
+            // legacy compatibility
+            'pending_by_fc' => 'pending_by_fc',
+            'on_progress_by_fc' => 'on_progress_by_fc',
+            'waiting_payment_by_fc' => 'waiting_payment_by_fc',
+            'paid_to_vendor_by_fc' => 'paid_to_vendor_by_fc',
+            'on_shipping_by_fc' => 'on_shipping_by_fc',
+            'item_arrived_by_fc' => 'item_arrived_by_fc',
+            'received_by_requester_by_fc' => 'received_by_requester_by_fc',
         ];
 
         $currentAction = $statusActionMap[$record->status] ?? null;
@@ -141,7 +228,6 @@ class PurchaseRequestForm
         return empty($metaParts) ? null : implode(' ', $metaParts);
     }
 
-
     protected static function canShowVendorOffers(?PurchaseRequest $record): bool
     {
         $user = static::getCurrentUser();
@@ -154,8 +240,12 @@ class PurchaseRequestForm
             return true;
         }
 
+        if ($user->isRequester()) {
+            return static::hasAnyVendorOffers($record);
+        }
+
         if (! $record) {
-            return $user->isPurchasing();
+            return $user->isPurchasing() || $user->isAccounting();
         }
 
         if ($user->isPurchasing()) {
@@ -172,8 +262,24 @@ class PurchaseRequestForm
                 'revision_to_purchasing_from_gm',
                 'revision_to_accounting_from_gm',
                 'revision_to_requester_from_gm',
-                'approved',
-                'rejected',
+                'gm_approved',
+                'pending',
+                'on_progress',
+                'waiting_payment',
+                'paid_to_vendor',
+                'on_shipping',
+                'on_hold_by_fc',
+                'received_by_requester',
+                'cancelled',
+
+                // legacy compatibility
+                'pending_by_fc',
+                'on_progress_by_fc',
+                'waiting_payment_by_fc',
+                'paid_to_vendor_by_fc',
+                'on_shipping_by_fc',
+                'item_arrived_by_fc',
+                'received_by_requester_by_fc',
             ], true);
         }
 
@@ -190,8 +296,24 @@ class PurchaseRequestForm
                 'revision_to_purchasing_from_gm',
                 'revision_to_accounting_from_gm',
                 'revision_to_requester_from_gm',
-                'approved',
-                'rejected',
+                'gm_approved',
+                'pending',
+                'on_progress',
+                'waiting_payment',
+                'paid_to_vendor',
+                'on_shipping',
+                'on_hold_by_fc',
+                'received_by_requester',
+                'cancelled',
+
+                // legacy compatibility
+                'pending_by_fc',
+                'on_progress_by_fc',
+                'waiting_payment_by_fc',
+                'paid_to_vendor_by_fc',
+                'on_shipping_by_fc',
+                'item_arrived_by_fc',
+                'received_by_requester_by_fc',
             ], true);
         }
 
@@ -202,8 +324,47 @@ class PurchaseRequestForm
                 'revision_to_purchasing_from_gm',
                 'revision_to_accounting_from_gm',
                 'revision_to_requester_from_gm',
-                'approved',
-                'rejected',
+                'gm_approved',
+                'pending',
+                'on_progress',
+                'waiting_payment',
+                'paid_to_vendor',
+                'on_shipping',
+                'on_hold_by_fc',
+                'received_by_requester',
+                'cancelled',
+
+                // legacy compatibility
+                'pending_by_fc',
+                'on_progress_by_fc',
+                'waiting_payment_by_fc',
+                'paid_to_vendor_by_fc',
+                'on_shipping_by_fc',
+                'item_arrived_by_fc',
+                'received_by_requester_by_fc',
+            ], true);
+        }
+
+        if (static::isFinancialControllerUser()) {
+            return in_array($record->status, [
+                'gm_approved',
+                'pending',
+                'on_progress',
+                'waiting_payment',
+                'paid_to_vendor',
+                'on_shipping',
+                'on_hold_by_fc',
+                'received_by_requester',
+                'cancelled',
+
+                // legacy compatibility
+                'pending_by_fc',
+                'on_progress_by_fc',
+                'waiting_payment_by_fc',
+                'paid_to_vendor_by_fc',
+                'on_shipping_by_fc',
+                'item_arrived_by_fc',
+                'received_by_requester_by_fc',
             ], true);
         }
 
@@ -334,6 +495,7 @@ class PurchaseRequestForm
                     }
 
                     $set('vendor_name', $vendor->name);
+                    $set('category', $vendor->category);
                     $set('contact_person', $vendor->contact_person);
                     $set('phone', $vendor->phone);
                     $set('email', $vendor->email);
@@ -345,6 +507,10 @@ class PurchaseRequestForm
                 ->required()
                 ->maxLength(191)
                 ->live(),
+
+            TextInput::make('category')
+                ->label('Category')
+                ->maxLength(191),
 
             TextInput::make('contact_person')
                 ->label('Contact Person')
@@ -534,10 +700,14 @@ class PurchaseRequestForm
                             ->getOptionLabelUsing(fn($value): ?string => Item::find($value)?->name)
                             ->afterStateUpdated(function ($state, callable $set) {
                                 if (blank($state)) {
+                                    $set('item_name', null);
+                                    $set('unit', null);
+                                    $set('specification', null);
+
                                     return;
                                 }
 
-                                $item = Item::find($state);
+                                $item = Item::with('photos')->find($state);
 
                                 if (! $item) {
                                     return;
@@ -614,6 +784,9 @@ class PurchaseRequestForm
                             ->columns(2)
                             ->columnSpanFull(),
 
+                        View::make('filament.schemas.components.selected-item-images-preview')
+                            ->columnSpanFull(),
+
                         Section::make('Item Vendor Offers')
                             ->extraAttributes([
                                 'class' => 'vendor-offers-section',
@@ -633,6 +806,13 @@ class PurchaseRequestForm
                                     ->schema(static::vendorOfferSchema())
                                     ->columns(3)
                                     ->columnSpanFull()
+                                    ->disabled(function (\Livewire\Component $livewire): bool {
+                                        $purchaseRequest = method_exists($livewire, 'getRecord')
+                                            ? $livewire->getRecord()
+                                            : null;
+
+                                        return ! static::canEditVendorOffers($purchaseRequest);
+                                    })
                                     ->visible(function (Get $get, \Livewire\Component $livewire): bool {
                                         $purchaseRequest = method_exists($livewire, 'getRecord')
                                             ? $livewire->getRecord()
@@ -646,7 +826,7 @@ class PurchaseRequestForm
 
                                 Radio::make('selected_vendor_choice')
                                     ->label('Final Vendor Selection')
-                                    ->helperText('Cost Control can select one vendor only. The other offers stay visible for comparison.')
+                                    ->helperText('Accounting / Cost Control can select one vendor only. The other offers stay visible for comparison.')
                                     ->dehydrated(false)
                                     ->live()
                                     ->inline(false)
@@ -708,11 +888,12 @@ class PurchaseRequestForm
                             ->itemLabel(fn(array $state): ?string => static::getVendorOfferItemLabel($state))
                             ->schema(static::vendorOfferSchema())
                             ->columns(2)
-                            ->columnSpanFull(),
+                            ->columnSpanFull()
+                            ->disabled(fn(?PurchaseRequest $record): bool => ! static::canEditVendorOffers($record)),
 
                         Radio::make('selected_vendor_choice')
                             ->label('Final Vendor Selection')
-                            ->helperText('Cost Control can select one vendor only. The other offers stay visible for comparison.')
+                            ->helperText('Accounting / Cost Control can select one vendor only. The other offers stay visible for comparison.')
                             ->dehydrated(false)
                             ->live()
                             ->inline(false)

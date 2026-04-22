@@ -46,44 +46,97 @@ class User extends Authenticatable
         return $this->hasMany(\App\Models\PurchaseRequestLog::class);
     }
 
+    public function getNormalizedRoleAttribute(): string
+    {
+        return strtolower(trim((string) $this->role));
+    }
+
+    public function normalizedRole(): string
+    {
+        return strtolower(trim((string) $this->role));
+    }
+
     public function isRequester(): bool
     {
-        return $this->role === 'requester';
+        return $this->normalizedRole() === 'requester';
     }
 
     public function isPurchasing(): bool
     {
-        return $this->role === 'purchasing';
+        return $this->normalizedRole() === 'purchasing';
     }
 
     public function isAccounting(): bool
     {
-        return $this->role === 'accounting';
+        return $this->normalizedRole() === 'accounting';
     }
 
     public function isGm(): bool
     {
-        return $this->role === 'gm';
+        return in_array($this->normalizedRole(), [
+            'gm',
+            'general_manager',
+            'general-manager',
+            'general manager',
+        ], true);
     }
 
     public function isOwner(): bool
     {
-        return $this->role === 'owner';
+        return $this->normalizedRole() === 'owner';
     }
 
     public function isAdmin(): bool
     {
-        return $this->role === 'admin';
+        return in_array($this->normalizedRole(), [
+            'admin',
+            'administrator',
+            'super_admin',
+            'super-admin',
+            'super admin',
+        ], true);
+    }
+
+    public function isFinancialController(): bool
+    {
+        return in_array($this->normalizedRole(), [
+            'financial_controller',
+            'financial-controller',
+            'financial controller',
+            'fc',
+            'cost_controller',
+            'cost-controller',
+            'cost controller',
+        ], true);
+    }
+
+    public function isCostController(): bool
+    {
+        return $this->isFinancialController();
     }
 
     public function isApprover(): bool
     {
-        return in_array($this->role, [
+        return in_array($this->normalizedRole(), [
             'purchasing',
             'accounting',
             'gm',
+            'general_manager',
+            'general-manager',
+            'general manager',
             'owner',
             'admin',
+            'administrator',
+            'super_admin',
+            'super-admin',
+            'super admin',
+            'financial_controller',
+            'financial-controller',
+            'financial controller',
+            'fc',
+            'cost_controller',
+            'cost-controller',
+            'cost controller',
         ], true);
     }
 

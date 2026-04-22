@@ -530,23 +530,35 @@ $displayTotalAmount = $itemsTotal;
 }
 
 $itemsWithPhotos = $items
-->map(function ($item) {
-$photos = collect($item->photos ?? [])
-->filter(fn ($photo) => filled($photo->file_path))
+->map(function ($purchaseRequestItem) {
+$photos = collect($purchaseRequestItem->photos ?? []);
+
+if ($photos->isEmpty() && $purchaseRequestItem->item) {
+$photos = collect($purchaseRequestItem->item->photos ?? []);
+}
+
+$photos = $photos
+->filter(function ($photo) {
+return filled($photo->file_path ?? null);
+})
 ->map(function ($photo) {
+$filePath = trim((string) ($photo->file_path ?? ''));
+
 return [
-'name' => $photo->file_name ?: 'Photo',
-'url' => Storage::disk('public')->url($photo->file_path),
+'name' => $photo->file_name ?: (basename($filePath) ?: 'Photo'),
+'url' => Storage::disk('public')->url($filePath),
 ];
 })
 ->values();
 
 return [
-'item_name' => $item->item?->name ?? $item->item_name ?? 'Item',
+'item_name' => $purchaseRequestItem->item?->name ?? $purchaseRequestItem->item_name ?? 'Item',
 'photos' => $photos,
 ];
 })
-->filter(fn ($item) => $item['photos']->isNotEmpty())
+->filter(function ($row) {
+return $row['photos']->isNotEmpty();
+})
 ->values();
 @endphp
 
@@ -764,7 +776,7 @@ return [
         .remarks-right td {
             padding: 8px 10px;
             font-size: 12px;
-            vertical-align: top;
+            vertical-align: middle;
             border-bottom: 1px solid #111827;
         }
 
@@ -778,10 +790,25 @@ return [
             text-transform: uppercase;
         }
 
+        .total-amount-label {
+            vertical-align: middle !important;
+        }
+
+        .total-amount-cell {
+            vertical-align: middle !important;
+            text-align: center;
+        }
+
         .total-amount-value {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            min-height: 150px;
+            width: 100%;
             font-size: 28px !important;
             font-weight: 700;
             line-height: 1.2;
+            text-align: center;
         }
 
         .photos-section {
@@ -1236,8 +1263,12 @@ return [
             <div class="remarks-right">
                 <table>
                     <tr>
-                        <td class="left-label">Total Amount</td>
-                        <td class="total-amount-value">{{ $formatMoney($displayTotalAmount, $displayCurrency) }}</td>
+                        <td class="left-label total-amount-label">Total Amount</td>
+                        <td class="total-amount-cell">
+                            <div class="total-amount-value">
+                                {{ $formatMoney($displayTotalAmount, $displayCurrency) }}
+                            </div>
+                        </td>
                     </tr>
                 </table>
             </div>
