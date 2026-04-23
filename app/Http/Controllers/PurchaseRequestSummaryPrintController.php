@@ -188,15 +188,30 @@ class PurchaseRequestSummaryPrintController extends Controller
                     ?: '-'
                 ));
 
+                $rawSpecification = (string) (
+                    $item->specification
+                    ?: optional($item->item)->default_specification
+                    ?: ''
+                );
+
+                $specification = html_entity_decode(strip_tags($rawSpecification), ENT_QUOTES | ENT_HTML5, 'UTF-8');
+                $specification = preg_replace('/\s+/', ' ', $specification ?? '');
+                $specification = trim((string) $specification);
+
                 $qty = $item->qty ?? $item->quantity ?? null;
+
+                $parts = [$name];
+
+                if ($specification !== '') {
+                    $parts[] = $specification;
+                }
 
                 if ($qty !== null && $qty !== '') {
                     $qty = rtrim(rtrim(number_format((float) $qty, 2, '.', ''), '0'), '.');
-
-                    return $name . ' | Qty: ' . $qty;
+                    $parts[] = 'Qty: ' . $qty;
                 }
 
-                return $name;
+                return implode(' | ', $parts);
             })
             ->filter()
             ->values()

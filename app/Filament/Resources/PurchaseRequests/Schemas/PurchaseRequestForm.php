@@ -593,8 +593,8 @@ class PurchaseRequestForm
                             ->dehydrated(),
 
                         TextInput::make('title')
-                            ->label('Request Name')
-                            ->placeholder('Example: Mouse and keyboard for Front Office')
+                            ->label('Purpose')
+                            ->placeholder('Example: Purchase Mouse and keyboard for Front Office')
                             ->required()
                             ->maxLength(255),
 
@@ -643,7 +643,7 @@ class PurchaseRequestForm
                             }),
 
                         RichEditor::make('request_notes')
-                            ->label('Request Description')
+                            ->label('Remarks / Additional Information')
                             ->toolbarButtons([
                                 'bold',
                                 'italic',

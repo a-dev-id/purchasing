@@ -447,14 +447,14 @@
                         <tr>
                             <th class="col-no">NO PR</th>
                             <th class="col-requester">REQUESTER</th>
-                            <th class="col-article">ARTICLE</th>
+                            <th class="col-article">ARTICLE & DESCRIPTION</th>
                             <th class="col-images">IMAGES</th>
                             <th class="col-request-name">PURPOSE</th>
                             <th class="col-purpose">REMARK</th>
                             <th class="col-submit">DATE SUBMIT</th>
                             <th class="col-needed">DATE NEEDED</th>
                             <th class="col-priority">PRIORITY</th>
-                            <th class="col-status">PR LOCATION</th>
+                            <th class="col-status">STATUS</th>
                             <th class="col-vendor">VENDOR</th>
                             <th class="col-price">PRICE</th>
                             <th class="col-received">RECEIVED AT</th>

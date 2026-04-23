@@ -260,8 +260,6 @@ class NeedsAttentionPurchaseRequests extends TableWidget
             'paid_to_vendor_by_fc',
             'on_shipping',
             'on_shipping_by_fc',
-            'received_by_requester',
-            'received_by_requester_by_fc',
         ];
     }
 
