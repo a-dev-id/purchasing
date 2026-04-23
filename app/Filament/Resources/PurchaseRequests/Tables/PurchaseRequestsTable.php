@@ -3,57 +3,47 @@
 namespace App\Filament\Resources\PurchaseRequests\Tables;
 
 use App\Filament\Resources\PurchaseRequests\PurchaseRequestResource;
-use App\Mail\PurchaseRequestSubmittedNotification;
 use App\Models\PurchaseRequest;
-use App\Models\PurchaseRequestLog;
-use App\Models\User;
 use Filament\Actions\Action;
-use Filament\Actions\EditAction;
-use Filament\Actions\ViewAction;
-use Filament\Notifications\Notification;
 use Filament\Tables\Columns\TextColumn;
 use Filament\Tables\Table;
-use Illuminate\Support\Facades\Auth;
-use Illuminate\Support\Facades\Mail;
-use Filament\Actions\DeleteAction;
 
 class PurchaseRequestsTable
 {
     public static function configure(Table $table): Table
     {
         return $table
+            ->defaultSort('last_activity_at', 'desc')
             ->columns([
                 TextColumn::make('request_number')
                     ->label('PR')
                     ->searchable()
                     ->sortable()
-                    ->placeholder('Draft')
-                    ->copyable()
-                    ->toggleable(),
+                    ->placeholder('Draft'),
 
                 TextColumn::make('requester_name')
                     ->label('Requester')
                     ->searchable()
                     ->sortable()
-                    ->limit(16)
-                    ->tooltip(fn(PurchaseRequest $record): ?string => $record->requester_name)
-                    ->toggleable(),
+                    ->wrap()
+                    ->limit(24),
 
                 TextColumn::make('title')
                     ->label('Request')
                     ->searchable()
                     ->sortable()
-                    ->limit(22)
-                    ->tooltip(fn(PurchaseRequest $record): ?string => $record->title)
-                    ->toggleable(),
+                    ->wrap()
+                    ->limit(28),
 
                 TextColumn::make('department_name')
                     ->label('Dept')
                     ->searchable()
                     ->sortable()
-                    ->toggleable(),
+                    ->wrap()
+                    ->limit(20),
 
                 TextColumn::make('priority')
+                    ->label('Priority')
                     ->badge()
                     ->formatStateUsing(fn(?string $state): string => match ($state) {
                         'urgent' => 'Urgent',
@@ -65,317 +55,186 @@ class PurchaseRequestsTable
                         'normal' => 'info',
                         default => 'gray',
                     })
-                    ->toggleable(),
+                    ->sortable(),
 
                 TextColumn::make('status')
                     ->label('Status')
                     ->badge()
-                    ->formatStateUsing(fn(?string $state): string => match ($state) {
-                        'draft' => 'Draft',
+                    ->formatStateUsing(fn(?string $state): string => static::statusLabel($state))
+                    ->color(fn(?string $state): string => static::statusColor($state))
+                    ->sortable(),
 
-                        'submitted' => 'To Purchasing',
-                        'revision_from_purchasing' => 'Returned by Purchasing',
-
-                        'submitted_to_accounting' => 'To Accounting',
-                        'revision_from_accounting' => 'Returned by Accounting',
-                        'revision_to_purchasing_from_accounting' => 'Back to Purchasing',
-                        'revision_to_requester_from_accounting' => 'Back to Requester',
-                        'on_hold_by_accounting' => 'Hold Accounting',
-
-                        'submitted_to_gm' => 'To GM',
-                        'revision_from_gm' => 'Returned by GM',
-                        'revision_to_purchasing_from_gm' => 'Back to Purchasing',
-                        'revision_to_accounting_from_gm' => 'Back to Accounting',
-                        'revision_to_requester_from_gm' => 'Back to Requester',
-                        'on_hold_by_gm' => 'Hold GM',
-
-                        'gm_approved' => 'GM Approved',
-
-                        // Current FC flow
-                        'pending' => 'Pending',
-                        'on_progress' => 'On Progress',
-                        'waiting_payment' => 'Waiting Payment',
-                        'paid_to_vendor' => 'Paid to Vendor',
-                        'on_shipping' => 'On Shipping',
-                        'received_by_requester' => 'Received by Requester (Done)',
-                        'on_hold_by_fc' => 'Hold FC',
-
-                        // Legacy FC flow compatibility
-                        'pending_by_fc' => 'Pending',
-                        'on_progress_by_fc' => 'On Progress',
-                        'waiting_payment_by_fc' => 'Waiting Payment',
-                        'paid_to_vendor_by_fc' => 'Paid to Vendor',
-                        'on_shipping_by_fc' => 'On Shipping',
-                        'item_arrived_by_fc' => 'On Shipping',
-                        'received_by_requester_by_fc' => 'Received by Requester (Done)',
-
-                        'approved' => 'Approved',
-                        'rejected' => 'Rejected',
-                        'cancelled' => 'Cancelled',
-
-                        null, '' => '-',
-                        default => str($state)->replace('_', ' ')->title(),
-                    })
-                    ->color(fn(?string $state): string => match ($state) {
-                        'draft' => 'gray',
-
-                        'submitted',
-                        'submitted_to_accounting',
-                        'submitted_to_gm',
-                        'revision_to_purchasing_from_accounting',
-                        'revision_to_purchasing_from_gm',
-                        'revision_to_accounting_from_gm',
-                        'gm_approved',
-                        'pending',
-                        'pending_by_fc',
-                        'waiting_payment',
-                        'waiting_payment_by_fc' => 'warning',
-
-                        'on_progress',
-                        'on_progress_by_fc',
-                        'on_shipping',
-                        'on_shipping_by_fc',
-                        'item_arrived_by_fc' => 'info',
-
-                        'paid_to_vendor',
-                        'paid_to_vendor_by_fc',
-                        'received_by_requester',
-                        'received_by_requester_by_fc',
-                        'approved' => 'success',
-
-                        'revision_from_purchasing',
-                        'revision_from_accounting',
-                        'revision_from_gm',
-                        'revision_to_requester_from_accounting',
-                        'revision_to_requester_from_gm',
-                        'rejected',
-                        'cancelled' => 'danger',
-
-                        'on_hold_by_accounting',
-                        'on_hold_by_gm',
-                        'on_hold_by_fc' => 'gray',
-
-                        default => 'gray',
-                    })
-                    ->toggleable(),
-
-                TextColumn::make('current_desk')
+                TextColumn::make('desk')
                     ->label('Desk')
+                    ->state(fn(PurchaseRequest $record): string => static::deskLabel($record->status))
                     ->badge()
-                    ->state(fn(PurchaseRequest $record): string => match ($record->status) {
-                        'draft' => 'Requester',
-
-                        'submitted' => 'Purchasing',
-                        'revision_from_purchasing' => 'Requester',
-
-                        'submitted_to_accounting' => 'Accounting',
-                        'revision_from_accounting' => 'Requester',
-                        'revision_to_purchasing_from_accounting' => 'Purchasing',
-                        'revision_to_requester_from_accounting' => 'Requester',
-                        'on_hold_by_accounting' => 'Accounting',
-
-                        'submitted_to_gm' => 'GM',
-                        'revision_from_gm' => 'Requester',
-                        'revision_to_purchasing_from_gm' => 'Purchasing',
-                        'revision_to_accounting_from_gm' => 'Accounting',
-                        'revision_to_requester_from_gm' => 'Requester',
-                        'on_hold_by_gm' => 'GM',
-
-                        'gm_approved' => 'Financial Controller',
-
-                        // Current FC flow
-                        'pending' => 'Financial Controller',
-                        'on_progress' => 'Financial Controller',
-                        'waiting_payment' => 'Financial Controller',
-                        'paid_to_vendor' => 'Financial Controller',
-                        'on_shipping' => 'Financial Controller',
-                        'on_hold_by_fc' => 'Financial Controller',
-                        'received_by_requester' => 'Done',
-
-                        // Legacy FC flow compatibility
-                        'pending_by_fc' => 'Financial Controller',
-                        'on_progress_by_fc' => 'Financial Controller',
-                        'waiting_payment_by_fc' => 'Financial Controller',
-                        'paid_to_vendor_by_fc' => 'Financial Controller',
-                        'on_shipping_by_fc' => 'Financial Controller',
-                        'item_arrived_by_fc' => 'Financial Controller',
-                        'received_by_requester_by_fc' => 'Done',
-
-                        'approved' => 'Done',
-                        'rejected' => 'Stopped',
-                        'cancelled' => 'Cancelled',
-
-                        default => '-',
-                    })
-                    ->color(fn(string $state): string => match ($state) {
-                        'Requester' => 'gray',
-                        'Purchasing' => 'warning',
-                        'Accounting' => 'info',
-                        'GM' => 'danger',
-                        'Financial Controller' => 'success',
-                        'Done' => 'success',
-                        'Stopped' => 'danger',
-                        'Cancelled' => 'danger',
-                        default => 'gray',
-                    })
-                    ->toggleable(),
+                    ->color(fn(string $state): string => static::deskColor($state))
+                    ->sortable(false),
 
                 TextColumn::make('items_count')
                     ->label('Items')
                     ->counts('items')
-                    ->alignCenter()
-                    ->toggleable(),
+                    ->sortable(),
 
                 TextColumn::make('submitted_at')
                     ->label('Submitted')
                     ->dateTime('d M H:i')
                     ->sortable()
-                    ->placeholder('-')
-                    ->toggleable(),
+                    ->placeholder('-'),
 
-                TextColumn::make('current_status_at')
+                TextColumn::make('last_activity_at')
                     ->label('Last Update')
                     ->dateTime('d M H:i')
                     ->sortable()
-                    ->placeholder('-')
-                    ->toggleable(),
+                    ->placeholder('-'),
             ])
-            ->defaultSort('id', 'desc')
+            ->filters([
+                //
+            ])
             ->recordActions([
-                Action::make('viewForm')
-                    ->label('View PR Form')
-                    ->icon('heroicon-o-document-text')
-                    ->url(fn(PurchaseRequest $record): string => route('purchase-requests.view-form', $record))
-                    ->openUrlInNewTab(),
-
-                Action::make('submitRequest')
-                    ->label('Submit')
-                    ->icon('heroicon-o-paper-airplane')
-                    ->color('success')
-                    ->requiresConfirmation()
-                    ->visible(fn(PurchaseRequest $record): bool => static::canShowSubmitAction($record))
-                    ->action(fn(PurchaseRequest $record) => static::submitRequest($record)),
-
-                ViewAction::make()
-                    ->label('View')
-                    ->visible(fn(PurchaseRequest $record): bool => PurchaseRequestResource::canView($record)
-                        && ! PurchaseRequestResource::canEdit($record)),
-
-                EditAction::make()
-                    ->visible(fn(PurchaseRequest $record): bool => PurchaseRequestResource::canEdit($record)),
-
-                DeleteAction::make()
-                    ->label('Delete')
-                    ->requiresConfirmation()
-                    ->modalHeading('Delete Purchase Request')
-                    ->modalDescription('This action will permanently delete this purchase request.')
-                    ->visible(fn(PurchaseRequest $record): bool => PurchaseRequestResource::canDelete($record)),
-            ]);
+                Action::make('open')
+                    ->label(fn(PurchaseRequest $record): string => PurchaseRequestResource::canEdit($record) ? 'Edit' : 'View')
+                    ->icon('heroicon-m-pencil-square')
+                    ->url(fn(PurchaseRequest $record): string => PurchaseRequestResource::canEdit($record)
+                        ? PurchaseRequestResource::getUrl('edit', ['record' => $record])
+                        : PurchaseRequestResource::getUrl('view', ['record' => $record])),
+            ])
+            ->emptyStateHeading('No Purchase Requests')
+            ->paginated([10, 25, 50]);
     }
 
-    protected static function getCurrentUser(): ?User
+    protected static function statusLabel(?string $state): string
     {
-        $user = Auth::user();
+        return match ($state) {
+            'draft' => 'Draft',
+            'submitted' => 'Submitted',
+            'revision_from_purchasing' => 'Need Revision',
+            'submitted_to_accounting' => 'To Accounting',
+            'on_hold_by_accounting' => 'Hold Accounting',
+            'revision_from_accounting' => 'Need Revision',
+            'revision_to_purchasing_from_accounting' => 'Back to Purchasing',
+            'revision_to_requester_from_accounting' => 'Back to Requester',
+            'submitted_to_gm' => 'To GM',
+            'on_hold_by_gm' => 'Hold GM',
+            'revision_from_gm' => 'Need Revision',
+            'revision_to_purchasing_from_gm' => 'Back to Purchasing',
+            'revision_to_accounting_from_gm' => 'Back to Accounting',
+            'revision_to_requester_from_gm' => 'Back to Requester',
+            'gm_approved' => 'GM Approved',
 
-        return $user instanceof User ? $user : null;
+            'pending',
+            'pending_by_fc' => 'Pending',
+
+            'on_progress',
+            'on_progress_by_fc' => 'On Progress',
+
+            'waiting_payment',
+            'waiting_payment_by_fc' => 'Waiting Payment',
+
+            'paid_to_vendor',
+            'paid_to_vendor_by_fc' => 'Paid to Vendor',
+
+            'on_shipping',
+            'on_shipping_by_fc',
+            'item_arrived_by_fc' => 'On Shipping',
+
+            'received_by_requester',
+            'received_by_requester_by_fc',
+            'approved' => 'Done',
+
+            'on_hold_by_fc' => 'Hold',
+            'cancelled' => 'Cancelled',
+            'rejected' => 'Rejected',
+
+            default => str($state)->replace('_', ' ')->title()->toString(),
+        };
     }
 
-    protected static function canShowSubmitAction(PurchaseRequest $record): bool
+    protected static function statusColor(?string $state): string
     {
-        $user = static::getCurrentUser();
+        return match ($state) {
+            'received_by_requester',
+            'received_by_requester_by_fc',
+            'approved' => 'success',
 
-        if (! $user || ! $user->is_active) {
-            return false;
-        }
+            'paid_to_vendor',
+            'paid_to_vendor_by_fc' => 'info',
 
-        if (! ($user->isRequester() || $user->isAdmin())) {
-            return false;
-        }
+            'on_shipping',
+            'on_shipping_by_fc',
+            'item_arrived_by_fc' => 'success',
 
-        return in_array($record->status, [
+            'submitted',
+            'submitted_to_accounting',
+            'submitted_to_gm',
+            'gm_approved',
+            'waiting_payment',
+            'waiting_payment_by_fc' => 'warning',
+
+            'cancelled',
+            'rejected' => 'danger',
+
+            default => 'gray',
+        };
+    }
+
+    protected static function deskLabel(?string $state): string
+    {
+        return match ($state) {
             'draft',
             'revision_from_purchasing',
             'revision_from_accounting',
             'revision_from_gm',
             'revision_to_requester_from_accounting',
-            'revision_to_requester_from_gm',
-        ], true);
+            'revision_to_requester_from_gm' => 'Requester',
+
+            'submitted',
+            'revision_to_purchasing_from_accounting',
+            'revision_to_purchasing_from_gm',
+            'paid_to_vendor',
+            'paid_to_vendor_by_fc',
+            'on_shipping',
+            'on_shipping_by_fc' => 'Purchasing',
+
+            'submitted_to_accounting',
+            'on_hold_by_accounting',
+            'revision_to_accounting_from_gm' => 'Accounting',
+
+            'submitted_to_gm',
+            'on_hold_by_gm' => 'GM',
+
+            'gm_approved',
+            'pending',
+            'pending_by_fc',
+            'on_progress',
+            'on_progress_by_fc',
+            'waiting_payment',
+            'waiting_payment_by_fc',
+            'item_arrived_by_fc',
+            'on_hold_by_fc' => 'Financial Controller',
+
+            'received_by_requester',
+            'received_by_requester_by_fc',
+            'approved' => 'Done',
+
+            'cancelled' => 'Cancelled',
+            'rejected' => 'Rejected',
+
+            default => '-',
+        };
     }
 
-    protected static function submitRequest(PurchaseRequest $record): void
+    protected static function deskColor(string $state): string
     {
-        if ($record->items()->count() === 0) {
-            Notification::make()
-                ->title('Add at least one item before submitting.')
-                ->danger()
-                ->send();
-
-            return;
-        }
-
-        $fromStatus = $record->status;
-
-        if (blank($record->request_number)) {
-            $record->request_number = static::generateRequestNumber($record);
-        }
-
-        $record->status = 'submitted';
-        $record->current_status_at = now();
-
-        if (blank($record->submitted_at)) {
-            $record->submitted_at = now();
-        }
-
-        $record->save();
-
-        if (method_exists($record, 'markActivity')) {
-            $record->markActivity();
-        }
-
-        $user = static::getCurrentUser();
-
-        PurchaseRequestLog::create([
-            'purchase_request_id' => $record->id,
-            'user_id' => $user?->id,
-            'user_name' => $user?->name,
-            'role_name' => $user?->role,
-            'action' => 'submitted',
-            'from_status' => $fromStatus,
-            'to_status' => 'submitted',
-            'message' => 'Submitted by requester: ' . $record->requester_name . ' to Purchasing',
-            'meta' => [
-                'request_number' => $record->request_number,
-                'requester_name' => $record->requester_name,
-                'department_name' => $record->department_name,
-            ],
-            'acted_at' => now(),
-        ]);
-
-        static::sendSubmittedEmailToPurchasing($record, $fromStatus);
-
-        Notification::make()
-            ->title('Purchase request submitted to Purchasing.')
-            ->success()
-            ->send();
-    }
-
-    protected static function sendSubmittedEmailToPurchasing(PurchaseRequest $record, string $fromStatus = 'draft'): void
-    {
-        $emails = config('mail.purchasing_notification_emails', []);
-
-        if (empty($emails)) {
-            return;
-        }
-
-        Mail::to($emails)->send(
-            new PurchaseRequestSubmittedNotification($record, $fromStatus)
-        );
-    }
-
-    protected static function generateRequestNumber(PurchaseRequest $record): string
-    {
-        $date = $record->created_at?->format('Ymd') ?? now()->format('Ymd');
-
-        return 'PR-' . $date . '-' . str_pad((string) $record->id, 4, '0', STR_PAD_LEFT);
+        return match ($state) {
+            'Requester' => 'gray',
+            'Purchasing' => 'warning',
+            'Accounting' => 'info',
+            'GM' => 'warning',
+            'Financial Controller' => 'success',
+            'Done' => 'success',
+            'Cancelled', 'Rejected' => 'danger',
+            default => 'gray',
+        };
     }
 }

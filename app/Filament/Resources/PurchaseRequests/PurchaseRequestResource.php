@@ -192,6 +192,29 @@ class PurchaseRequestResource extends Resource
             'submitted',
             'revision_to_purchasing_from_accounting',
             'revision_to_purchasing_from_gm',
+
+            'paid_to_vendor',
+            'paid_to_vendor_by_fc',
+            'on_shipping',
+            'on_shipping_by_fc',
+
+            'received_by_requester',
+            'received_by_requester_by_fc',
+            'approved',
+        ];
+    }
+
+    protected static function purchasingEditableStatuses(): array
+    {
+        return [
+            'submitted',
+            'revision_to_purchasing_from_accounting',
+            'revision_to_purchasing_from_gm',
+
+            'paid_to_vendor',
+            'paid_to_vendor_by_fc',
+            'on_shipping',
+            'on_shipping_by_fc',
         ];
     }
 
@@ -217,7 +240,6 @@ class PurchaseRequestResource extends Resource
     protected static function financialControllerVisibleStatuses(): array
     {
         return [
-            // current FC flow
             'gm_approved',
             'pending',
             'on_progress',
@@ -226,7 +248,6 @@ class PurchaseRequestResource extends Resource
             'on_shipping',
             'on_hold_by_fc',
 
-            // legacy compatibility
             'pending_by_fc',
             'on_progress_by_fc',
             'waiting_payment_by_fc',
@@ -239,7 +260,6 @@ class PurchaseRequestResource extends Resource
     protected static function financialControllerEditableStatuses(): array
     {
         return [
-            // current FC flow
             'gm_approved',
             'pending',
             'on_progress',
@@ -248,7 +268,6 @@ class PurchaseRequestResource extends Resource
             'on_shipping',
             'on_hold_by_fc',
 
-            // legacy compatibility
             'pending_by_fc',
             'on_progress_by_fc',
             'waiting_payment_by_fc',
@@ -363,7 +382,7 @@ class PurchaseRequestResource extends Resource
         }
 
         if (static::isPurchasingUser($user)) {
-            return in_array($record->status, static::purchasingVisibleStatuses(), true);
+            return in_array($record->status, static::purchasingEditableStatuses(), true);
         }
 
         if (static::isAccountingUser($user)) {

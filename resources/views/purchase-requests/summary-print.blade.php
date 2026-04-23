@@ -36,7 +36,7 @@
         }
 
         .screen-actions {
-            max-width: 1950px;
+            max-width: 2050px;
             margin: 24px auto 0;
             padding: 0 24px;
             display: flex;
@@ -56,7 +56,7 @@
         }
 
         .page {
-            max-width: 1950px;
+            max-width: 2050px;
             margin: 14px auto 30px;
             background: var(--white);
             border: 1px solid var(--border);
@@ -118,7 +118,7 @@
 
         .table-scroll table {
             width: 100%;
-            min-width: 1900px;
+            min-width: 2050px;
             border-collapse: collapse;
             table-layout: fixed;
             border: 0;
@@ -170,18 +170,22 @@
         }
 
         .col-no {
-            width: 10%;
+            width: 9%;
         }
 
         .col-requester {
-            width: 10%;
+            width: 9%;
         }
 
         .col-article {
-            width: 17%;
+            width: 15%;
         }
 
         .col-images {
+            width: 11%;
+        }
+
+        .col-request-name {
             width: 12%;
         }
 
@@ -202,11 +206,11 @@
         }
 
         .col-status {
-            width: 12%;
+            width: 11%;
         }
 
         .col-vendor {
-            width: 11%;
+            width: 10%;
         }
 
         .col-price {
@@ -222,7 +226,7 @@
         }
 
         .col-remarks {
-            width: 14%;
+            width: 13%;
         }
 
         .item-list {
@@ -445,11 +449,12 @@
                             <th class="col-requester">REQUESTER</th>
                             <th class="col-article">ARTICLE</th>
                             <th class="col-images">IMAGES</th>
-                            <th class="col-purpose">PURPOSE</th>
+                            <th class="col-request-name">PURPOSE</th>
+                            <th class="col-purpose">REMARK</th>
                             <th class="col-submit">DATE SUBMIT</th>
                             <th class="col-needed">DATE NEEDED</th>
                             <th class="col-priority">PRIORITY</th>
-                            <th class="col-status">PR STATUS</th>
+                            <th class="col-status">PR LOCATION</th>
                             <th class="col-vendor">VENDOR</th>
                             <th class="col-price">PRICE</th>
                             <th class="col-received">RECEIVED AT</th>
@@ -460,39 +465,36 @@
                     <tbody>
                         @foreach ($departmentRows as $row)
                         @php
-                        $prStatusText = $row['desk_label']
-                        ?? $row['current_desk']
-                        ?? $row['desk']
-                        ?? $row['status_label']
-                        ?? '-';
+                        $prStatusText =
+                        $row['desk_label'] ??
+                        $row['current_desk'] ??
+                        $row['desk'] ??
+                        $row['status_label'] ??
+                        '-';
 
                         $prStatusText = preg_replace('/^to\s+/i', '', (string) $prStatusText);
 
-                        $prStatusClass = $row['desk_class']
-                        ?? $row['current_desk_class']
-                        ?? $row['status_class']
-                        ?? 'status-muted';
+                        $prStatusClass =
+                        $row['desk_class'] ??
+                        $row['current_desk_class'] ??
+                        $row['status_class'] ??
+                        'status-muted';
 
                         $imageUrls = collect($row['image_urls'] ?? [])
                         ->filter(fn ($url) => filled($url))
                         ->take(4)
                         ->values();
 
-                        $submittedForDays = $row['submitted_at_raw']
-                        ?? $row['submitted_at']
-                        ?? null;
-
-                        $receivedForDays = $row['received_at_raw']
-                        ?? $row['received_at']
-                        ?? null;
+                        $submittedForDays = $row['submitted_at_raw'] ?? $row['submitted_at'] ?? null;
+                        $receivedForDays = $row['received_at_raw'] ?? $row['received_at'] ?? null;
 
                         $totalDaysDisplay = $row['total_days'] ?? null;
 
                         if (
-                        ($totalDaysDisplay === null || $totalDaysDisplay === '' || $totalDaysDisplay === '-')
-                        && filled($submittedForDays)
-                        && filled($receivedForDays)
-                        && $receivedForDays !== '-'
+                        ($totalDaysDisplay === null || $totalDaysDisplay === '' || $totalDaysDisplay === '-') &&
+                        filled($submittedForDays) &&
+                        filled($receivedForDays) &&
+                        $receivedForDays !== '-'
                         ) {
                         try {
                         $submittedDate = \Carbon\Carbon::parse($submittedForDays)->startOfDay();
@@ -530,6 +532,7 @@
                                 <div class="no-image">-</div>
                                 @endif
                             </td>
+                            <td>{{ $row['request_name'] ?? '-' }}</td>
                             <td>{{ $row['purpose'] }}</td>
                             <td class="text-center">{{ $row['submitted_at'] }}</td>
                             <td class="text-center">{{ $row['date_needed'] }}</td>
@@ -563,7 +566,8 @@
                         <th class="col-requester">REQUESTER</th>
                         <th class="col-article">ARTICLE</th>
                         <th class="col-images">IMAGES</th>
-                        <th class="col-purpose">PURPOSE</th>
+                        <th class="col-request-name">PURPOSE</th>
+                        <th class="col-purpose">REMARK</th>
                         <th class="col-submit">DATE SUBMIT</th>
                         <th class="col-needed">DATE NEEDED</th>
                         <th class="col-priority">PRIORITY</th>
@@ -577,7 +581,7 @@
                 </thead>
                 <tbody>
                     <tr>
-                        <td colspan="14" class="text-center">No purchase requests found.</td>
+                        <td colspan="15" class="text-center">No purchase requests found.</td>
                     </tr>
                 </tbody>
             </table>
@@ -596,7 +600,7 @@
         function closeSummaryTab() {
             window.close();
 
-            setTimeout(function () {
+            setTimeout(function() {
                 if (!window.closed) {
                     if (window.history.length > 1) {
                         window.history.back();
@@ -629,7 +633,7 @@
             document.body.style.overflow = '';
         }
 
-        document.addEventListener('keydown', function (event) {
+        document.addEventListener('keydown', function(event) {
             if (event.key === 'Escape') {
                 const modal = document.getElementById('imageModal');
 

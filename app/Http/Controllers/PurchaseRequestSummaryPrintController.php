@@ -14,6 +14,7 @@ class PurchaseRequestSummaryPrintController extends Controller
             ->with([
                 'requester',
                 'items.photos',
+                'items.item.photos',
                 'items.vendorOffers',
                 'vendorOffers',
                 'logs',
@@ -29,18 +30,29 @@ class PurchaseRequestSummaryPrintController extends Controller
                     'requester_name' => $purchaseRequest->requester_name
                         ?: optional($purchaseRequest->requester)->name
                         ?: '-',
+                    'request_name' => $this->requestName($purchaseRequest),
                     'article_description' => $this->itemsSummary($purchaseRequest),
                     'image_urls' => $this->imageUrls($purchaseRequest),
                     'purpose' => $this->plainText($purchaseRequest->request_notes),
-                    'submitted_at' => $purchaseRequest->submitted_at?->format('d M Y') ?: '-',
+
+                    'submitted_at_raw' => $purchaseRequest->submitted_at?->toDateTimeString(),
+                    'submitted_at' => $purchaseRequest->submitted_at?->format('d M Y H:i') ?: '-',
+
                     'date_needed' => $purchaseRequest->date_needed?->format('d M Y') ?: '-',
                     'priority_label' => $this->priorityLabel($purchaseRequest->priority),
                     'priority_class' => $this->priorityClass($purchaseRequest->priority),
+
                     'status_label' => $this->statusLabel($purchaseRequest->status),
                     'status_class' => $this->statusClass($purchaseRequest->status),
+                    'desk_label' => $this->deskLabel($purchaseRequest->status),
+                    'desk_class' => $this->deskClass($purchaseRequest->status),
+
                     'vendor_summary' => $this->vendorSummary($purchaseRequest),
                     'price_display' => $this->currency($this->selectedTotal($purchaseRequest)),
+
+                    'received_at_raw' => $purchaseRequest->received_at?->toDateTimeString(),
                     'received_at' => $purchaseRequest->received_at?->format('d M Y H:i') ?: '-',
+
                     'total_days' => $this->totalDaysToReceive($purchaseRequest),
                     'remarks' => $this->latestRemark($purchaseRequest),
                 ];
@@ -52,24 +64,45 @@ class PurchaseRequestSummaryPrintController extends Controller
         ]);
     }
 
+    protected function requestName(PurchaseRequest $purchaseRequest): string
+    {
+        $title = trim((string) ($purchaseRequest->title ?? $purchaseRequest->request_name ?? ''));
+
+        if ($title !== '') {
+            return $title;
+        }
+
+        $itemNames = collect($purchaseRequest->items ?? [])
+            ->map(function ($item) {
+                return trim((string) (
+                    $item->item_name
+                    ?: optional($item->item)->name
+                    ?: ''
+                ));
+            })
+            ->filter()
+            ->unique()
+            ->values();
+
+        return $itemNames->isNotEmpty()
+            ? $itemNames->implode(', ')
+            : '-';
+    }
+
     protected function imageUrls(PurchaseRequest $purchaseRequest): array
     {
         return collect($purchaseRequest->items ?? [])
             ->flatMap(function ($item) {
-                return collect($item->photos ?? [])->pluck('file_path');
-            })
-            ->filter()
-            ->map(function ($path) {
-                $path = trim((string) $path);
+                $prItemPhotos = collect($item->photos ?? [])->pluck('file_path');
 
-                if ($path === '') {
-                    return null;
+                if ($prItemPhotos->isNotEmpty()) {
+                    return $prItemPhotos;
                 }
 
-                return str_starts_with($path, 'http')
-                    ? $path
-                    : Storage::url($path);
+                return collect(optional($item->item)->photos ?? [])->pluck('file_path');
             })
+            ->filter()
+            ->map(fn($path) => $this->imagePathToUrl($path))
             ->filter()
             ->unique()
             ->take(4)
@@ -77,18 +110,48 @@ class PurchaseRequestSummaryPrintController extends Controller
             ->all();
     }
 
+    protected function imagePathToUrl(?string $path): ?string
+    {
+        $path = trim((string) $path);
+
+        if ($path === '') {
+            return null;
+        }
+
+        if (str_starts_with($path, 'http://') || str_starts_with($path, 'https://')) {
+            return $path;
+        }
+
+        return Storage::url($path);
+    }
+
     protected function totalDaysToReceive(PurchaseRequest $purchaseRequest): string
     {
-        $start = $purchaseRequest->created_at;
-        $end = $purchaseRequest->received_at;
+        $start = $purchaseRequest->submitted_at ?? $purchaseRequest->created_at;
 
-        if (! $start || ! $end) {
+        if (! $start) {
             return '-';
         }
 
-        $days = $start->startOfDay()->diffInDays($end->startOfDay());
+        $receivedStatuses = [
+            'received_by_requester',
+            'received_by_requester_by_fc',
+            'approved',
+        ];
 
-        return $days . ' day' . ($days === 1 ? '' : 's');
+        $end = $purchaseRequest->received_at;
+
+        if (! $end && in_array((string) $purchaseRequest->status, $receivedStatuses, true)) {
+            $end = $purchaseRequest->current_status_at ?? $purchaseRequest->updated_at;
+        }
+
+        if (! $end) {
+            $end = now();
+        }
+
+        $days = $start->copy()->startOfDay()->diffInDays($end->copy()->startOfDay());
+
+        return (string) max($days, 0);
     }
 
     protected function priorityLabel(?string $state): string
@@ -119,7 +182,11 @@ class PurchaseRequestSummaryPrintController extends Controller
 
         return $items
             ->map(function ($item) {
-                $name = trim((string) ($item->item_name ?: $item->name ?: '-'));
+                $name = trim((string) (
+                    $item->item_name
+                    ?: optional($item->item)->name
+                    ?: '-'
+                ));
 
                 $qty = $item->qty ?? $item->quantity ?? null;
 
@@ -138,7 +205,6 @@ class PurchaseRequestSummaryPrintController extends Controller
 
     protected function vendorSummary(PurchaseRequest $purchaseRequest): string
     {
-        // PR mode: show only the selected winning vendor
         $selectedPrVendor = collect($purchaseRequest->vendorOffers ?? [])
             ->firstWhere('is_selected_by_accounting', true);
 
@@ -146,7 +212,6 @@ class PurchaseRequestSummaryPrintController extends Controller
             return trim((string) $selectedPrVendor->vendor_name);
         }
 
-        // Item mode: show only selected winning vendors from each item
         $selectedItemVendors = collect($purchaseRequest->items ?? [])
             ->flatMap(function ($item) {
                 return collect($item->vendorOffers ?? [])
@@ -162,7 +227,6 @@ class PurchaseRequestSummaryPrintController extends Controller
             return $selectedItemVendors->implode(', ');
         }
 
-        // No winner selected yet
         return '-';
     }
 
@@ -190,6 +254,10 @@ class PurchaseRequestSummaryPrintController extends Controller
 
     protected function latestRemark(PurchaseRequest $purchaseRequest): string
     {
+        if (in_array((string) $purchaseRequest->status, ['on_shipping', 'on_shipping_by_fc'], true)) {
+            return 'The PR is Paid to vendor by Financial Controller and On Shipping.';
+        }
+
         $log = collect($purchaseRequest->logs ?? [])
             ->filter(fn($log) => filled($log->message))
             ->sortByDesc(fn($log) => $log->acted_at ?? $log->created_at)
@@ -257,24 +325,111 @@ class PurchaseRequestSummaryPrintController extends Controller
             'approved',
             'paid_to_vendor',
             'paid_to_vendor_by_fc' => 'status-success',
+
             'on_progress',
             'on_progress_by_fc',
             'on_shipping',
             'on_shipping_by_fc',
             'item_arrived_by_fc' => 'status-info',
+
             'submitted',
             'submitted_to_accounting',
             'submitted_to_gm',
             'gm_approved',
             'waiting_payment',
             'waiting_payment_by_fc' => 'status-warning',
+
             'cancelled',
             'rejected' => 'status-danger',
+
             'pending',
             'pending_by_fc',
             'on_hold_by_fc',
             'on_hold_by_accounting',
             'on_hold_by_gm' => 'status-muted',
+
+            default => 'status-muted',
+        };
+    }
+
+    protected function deskLabel(?string $state): string
+    {
+        return match ($state) {
+            'draft',
+            'revision_from_purchasing',
+            'revision_from_accounting',
+            'revision_from_gm',
+            'revision_to_requester_from_accounting',
+            'revision_to_requester_from_gm' => 'Requester',
+
+            'submitted',
+            'revision_to_purchasing_from_accounting',
+            'revision_to_purchasing_from_gm',
+            'paid_to_vendor',
+            'paid_to_vendor_by_fc',
+            'on_shipping',
+            'on_shipping_by_fc' => 'Purchasing',
+
+            'submitted_to_accounting',
+            'on_hold_by_accounting',
+            'revision_to_accounting_from_gm' => 'Accounting',
+
+            'submitted_to_gm',
+            'on_hold_by_gm' => 'GM',
+
+            'gm_approved',
+            'pending',
+            'pending_by_fc',
+            'on_progress',
+            'on_progress_by_fc',
+            'waiting_payment',
+            'waiting_payment_by_fc',
+            'item_arrived_by_fc',
+            'on_hold_by_fc' => 'Financial Controller',
+
+            'received_by_requester',
+            'received_by_requester_by_fc',
+            'approved' => 'Done',
+
+            'cancelled' => 'Cancelled',
+            'rejected' => 'Rejected',
+
+            default => '-',
+        };
+    }
+
+    protected function deskClass(?string $state): string
+    {
+        return match ($state) {
+            'received_by_requester',
+            'received_by_requester_by_fc',
+            'approved' => 'status-success',
+
+            'submitted',
+            'revision_to_purchasing_from_accounting',
+            'revision_to_purchasing_from_gm',
+            'submitted_to_accounting',
+            'on_hold_by_accounting',
+            'revision_to_accounting_from_gm',
+            'submitted_to_gm',
+            'on_hold_by_gm',
+            'gm_approved',
+            'pending',
+            'pending_by_fc',
+            'on_progress',
+            'on_progress_by_fc',
+            'waiting_payment',
+            'waiting_payment_by_fc',
+            'paid_to_vendor',
+            'paid_to_vendor_by_fc',
+            'on_shipping',
+            'on_shipping_by_fc',
+            'item_arrived_by_fc',
+            'on_hold_by_fc' => 'status-warning',
+
+            'cancelled',
+            'rejected' => 'status-danger',
+
             default => 'status-muted',
         };
     }

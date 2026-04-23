@@ -148,6 +148,7 @@ class EditPurchaseRequest extends EditRecord
                     ->label('Return to Requester')
                     ->icon('heroicon-m-arrow-uturn-left')
                     ->color('danger')
+                    ->visible(fn() => $this->canPurchasingReject())
                     ->form([
                         Textarea::make('message')
                             ->label('Return Message')
@@ -184,12 +185,77 @@ class EditPurchaseRequest extends EditRecord
                             'last_reminder_sent_at',
                         ]);
                     }),
+
+                Action::make('markOnShippingByPurchasing')
+                    ->label('On Shipping')
+                    ->icon('heroicon-m-truck')
+                    ->color('success')
+                    ->requiresConfirmation()
+                    ->visible(fn() => $this->canPurchasingUpdateAfterPaidToVendor()
+                        && in_array($this->record->status, ['paid_to_vendor', 'on_shipping'], true))
+                    ->action(fn() => $this->updatePurchasingDeliveryStatus(
+                        status: 'on_shipping',
+                        action: 'on_shipping',
+                        successTitle: 'Purchase request marked as on shipping.',
+                        message: 'The PR is Paid to vendor by Financial Controller and On Shipping.',
+                    )),
+
+                Action::make('markReceivedByRequesterByPurchasing')
+                    ->label('Received by Requester')
+                    ->icon('heroicon-m-check-circle')
+                    ->color('success')
+                    ->visible(fn() => $this->canPurchasingUpdateAfterPaidToVendor()
+                        && in_array($this->record->status, ['paid_to_vendor', 'on_shipping'], true))
+                    ->form([
+                        \Filament\Forms\Components\DateTimePicker::make('received_at')
+                            ->label('Received At')
+                            ->required()
+                            ->seconds(false)
+                            ->default(now())
+                            ->displayFormat('d M Y H:i')
+                            ->native(false),
+
+                        \Filament\Forms\Components\TextInput::make('receiver_name')
+                            ->label('Receiver Name')
+                            ->required()
+                            ->maxLength(255)
+                            ->placeholder('Input the person who takes the item from Purchasing'),
+
+                        Textarea::make('message')
+                            ->label('Received Note')
+                            ->placeholder('Write the handover / receiving note for this PR.')
+                            ->rows(4),
+                    ])
+                    ->action(function (array $data) {
+                        $receiverName = trim((string) ($data['receiver_name'] ?? ''));
+                        $receivedAt = trim((string) ($data['received_at'] ?? ''));
+                        $extraNote = trim((string) ($data['message'] ?? ''));
+
+                        $receivedDateLabel = $receivedAt !== ''
+                            ? \Carbon\Carbon::parse($receivedAt)->format('Y-m-d')
+                            : now()->format('Y-m-d');
+
+                        $message = "The item was received by {$receiverName} on {$receivedDateLabel}.";
+
+                        if ($extraNote !== '') {
+                            $message .= " Note: {$extraNote}";
+                        }
+
+                        $this->updatePurchasingDeliveryStatus(
+                            status: 'received_by_requester',
+                            action: 'received_by_requester',
+                            successTitle: 'Purchase request marked as received by requester.',
+                            message: $message,
+                            receivedAt: $receivedAt,
+                            receiverName: $receiverName,
+                        );
+                    }),
             ])
                 ->label('Purchasing Actions')
                 ->button()
                 ->color('gray')
                 ->icon('heroicon-m-ellipsis-horizontal')
-                ->visible(fn() => $this->canPurchasingReject()),
+                ->visible(fn() => $this->canPurchasingReject() || $this->canPurchasingUpdateAfterPaidToVendor()),
 
             Action::make('submitToGm')
                 ->label('Submit to GM')
@@ -592,29 +658,6 @@ class EditPurchaseRequest extends EditRecord
                 ),
 
                 $this->makeFinancialControllerAction(
-                    name: 'markOnShippingByFc',
-                    label: 'On Shipping',
-                    icon: 'heroicon-m-truck',
-                    color: 'success',
-                    status: 'on_shipping',
-                    visibleStatuses: ['paid_to_vendor', 'on_shipping'],
-                    defaultMessage: 'Purchase request marked as on shipping by Financial Controller.',
-                ),
-
-                $this->makeFinancialControllerAction(
-                    name: 'markReceivedByRequesterByFc',
-                    label: 'Received by Requester',
-                    icon: 'heroicon-m-check-circle',
-                    color: 'success',
-                    status: 'received_by_requester',
-                    visibleStatuses: ['on_shipping', 'paid_to_vendor'],
-                    noteLabel: 'Received Note',
-                    notePlaceholder: 'Write the handover / receiving note for this PR.',
-                    noteRequired: true,
-                    setReceivedAt: true,
-                ),
-
-                $this->makeFinancialControllerAction(
                     name: 'holdByFc',
                     label: 'Hold',
                     icon: 'heroicon-m-pause-circle',
@@ -643,7 +686,7 @@ class EditPurchaseRequest extends EditRecord
                 ->button()
                 ->color('gray')
                 ->icon('heroicon-m-ellipsis-horizontal')
-                ->visible(fn() => $this->canFinancialControllerUpdate()),
+                ->visible(fn() => $this->canShowFinancialControllerActions()),
         ];
     }
 
@@ -945,6 +988,13 @@ class EditPurchaseRequest extends EditRecord
             'message' => $message,
         ]);
 
+        if ($status === 'paid_to_vendor') {
+            $this->sendSubmittedEmailToPurchasing(
+                $this->record,
+                'paid_to_vendor'
+            );
+        }
+
         Notification::make()
             ->success()
             ->title($successTitle)
@@ -961,9 +1011,75 @@ class EditPurchaseRequest extends EditRecord
         ]);
     }
 
+    protected function updatePurchasingDeliveryStatus(
+        string $status,
+        string $action,
+        string $successTitle,
+        string $message,
+        ?string $receivedAt = null,
+        ?string $receiverName = null,
+    ): void {
+        $this->record->status = $status;
+
+        if ($receivedAt) {
+            $this->record->received_at = $receivedAt;
+        }
+
+        if ($receiverName && \Schema::hasColumn($this->record->getTable(), 'receiver_name')) {
+            $this->record->receiver_name = $receiverName;
+        }
+
+        $this->record->save();
+
+        $this->record->markActivity();
+
+        $this->record->logs()->create([
+            'user_id' => Auth::id(),
+            'action' => $action,
+            'message' => $message,
+        ]);
+
+        Notification::make()
+            ->success()
+            ->title($successTitle)
+            ->send();
+
+        $this->refreshFormData([
+            'status',
+            'received_at',
+            'current_status_at',
+            'last_activity_at',
+            'last_reminder_sent_at',
+        ]);
+    }
+
     protected function sendSubmittedEmailToPurchasing(PurchaseRequest $purchaseRequest, string $fromStatus = 'draft'): void
     {
-        $emails = config('mail.purchasing_notification_emails', []);
+        $configuredEmails = collect(config('mail.purchasing_notification_emails', []));
+
+        $userEmails = User::query()
+            ->where('is_active', true)
+            ->whereNotNull('email')
+            ->get()
+            ->filter(function (User $user) {
+                $role = strtolower(trim((string) ($user->role ?? '')));
+
+                if ($role === 'purchasing') {
+                    return true;
+                }
+
+                return method_exists($user, 'isPurchasing') && $user->isPurchasing();
+            })
+            ->pluck('email');
+
+        $emails = $configuredEmails
+            ->merge($userEmails)
+            ->filter()
+            ->map(fn($email) => trim((string) $email))
+            ->filter()
+            ->unique()
+            ->values()
+            ->all();
 
         if (empty($emails)) {
             return;
@@ -976,7 +1092,31 @@ class EditPurchaseRequest extends EditRecord
 
     protected function sendSubmittedEmailToAccounting(PurchaseRequest $purchaseRequest, string $fromStatus = 'submitted_to_accounting'): void
     {
-        $emails = config('mail.accounting_notification_emails', []);
+        $configuredEmails = collect(config('mail.accounting_notification_emails', []));
+
+        $userEmails = User::query()
+            ->where('is_active', true)
+            ->whereNotNull('email')
+            ->get()
+            ->filter(function (User $user) {
+                $role = strtolower(trim((string) ($user->role ?? '')));
+
+                if ($role === 'accounting') {
+                    return true;
+                }
+
+                return method_exists($user, 'isAccounting') && $user->isAccounting();
+            })
+            ->pluck('email');
+
+        $emails = $configuredEmails
+            ->merge($userEmails)
+            ->filter()
+            ->map(fn($email) => trim((string) $email))
+            ->filter()
+            ->unique()
+            ->values()
+            ->all();
 
         if (empty($emails)) {
             return;
@@ -1333,6 +1473,42 @@ class EditPurchaseRequest extends EditRecord
         }
 
         return $this->isFinancialControllerUser($user);
+    }
+
+    protected function canShowFinancialControllerActions(): bool
+    {
+        if (! $this->canFinancialControllerUpdate()) {
+            return false;
+        }
+
+        return in_array($this->record->status, [
+            'gm_approved',
+            'pending',
+            'pending_by_fc',
+            'on_progress',
+            'on_progress_by_fc',
+            'waiting_payment',
+            'waiting_payment_by_fc',
+            'on_hold_by_fc',
+        ], true);
+    }
+
+    protected function canPurchasingUpdateAfterPaidToVendor(): bool
+    {
+        $user = $this->getCurrentUser();
+
+        if (! $user) {
+            return false;
+        }
+
+        if (! ($user->isPurchasing() || $user->isAdmin())) {
+            return false;
+        }
+
+        return in_array($this->record->status, [
+            'paid_to_vendor',
+            'on_shipping',
+        ], true);
     }
 
     protected function generateRequestNumber(PurchaseRequest $record): string
