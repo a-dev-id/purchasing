@@ -15,7 +15,7 @@ class PurchaseRequestSummaryPrintController extends Controller
                 'requester',
                 'items.photos',
                 'items.item.photos',
-                'items.vendorOffers',
+                'items.vendorOffers.vendor',
                 'vendorOffers',
                 'logs',
             ])
@@ -30,9 +30,13 @@ class PurchaseRequestSummaryPrintController extends Controller
                     'requester_name' => $purchaseRequest->requester_name
                         ?: optional($purchaseRequest->requester)->name
                         ?: '-',
+
                     'request_name' => $this->requestName($purchaseRequest),
+
                     'article_description' => $this->itemsSummary($purchaseRequest),
                     'image_urls' => $this->imageUrls($purchaseRequest),
+                    'items' => $this->itemRows($purchaseRequest),
+
                     'purpose' => $this->plainText($purchaseRequest->request_notes),
 
                     'submitted_at_raw' => $purchaseRequest->submitted_at?->toDateTimeString(),
@@ -62,6 +66,111 @@ class PurchaseRequestSummaryPrintController extends Controller
             'rows' => $rows,
             'generatedAt' => now(),
         ]);
+    }
+
+    protected function itemRows(PurchaseRequest $purchaseRequest): array
+    {
+        return collect($purchaseRequest->items ?? [])
+            ->map(function ($item) {
+                $name = trim((string) (
+                    $item->item_name
+                    ?: optional($item->item)->name
+                    ?: '-'
+                ));
+
+                $rawSpecification = (string) (
+                    $item->specification
+                    ?: optional($item->item)->default_specification
+                    ?: ''
+                );
+
+                $specification = html_entity_decode(strip_tags($rawSpecification), ENT_QUOTES | ENT_HTML5, 'UTF-8');
+                $specification = preg_replace('/\s+/', ' ', $specification ?? '');
+                $specification = trim((string) $specification);
+
+                $qty = $item->qty ?? $item->quantity ?? null;
+                $qtyNumber = is_numeric($qty) ? (float) $qty : 1;
+
+                $qtyDisplay = null;
+
+                if ($qty !== null && $qty !== '') {
+                    $qtyDisplay = rtrim(rtrim(number_format((float) $qty, 2, '.', ''), '0'), '.');
+                }
+
+                $parts = [$name];
+
+                if ($specification !== '') {
+                    $parts[] = $specification;
+                }
+
+                if ($qtyDisplay !== null) {
+                    $parts[] = 'Qty: ' . $qtyDisplay;
+                }
+
+                $selectedOffer = collect($item->vendorOffers ?? [])
+                    ->firstWhere('is_selected_by_accounting', true);
+
+                $photoPaths = collect($item->photos ?? [])->pluck('file_path');
+
+                if ($photoPaths->isEmpty()) {
+                    $photoPaths = collect(optional($item->item)->photos ?? [])->pluck('file_path');
+                }
+
+                $unitPrice = $selectedOffer?->offer_total !== null
+                    ? (float) $selectedOffer->offer_total
+                    : null;
+
+                $totalPrice = $unitPrice !== null
+                    ? $unitPrice * $qtyNumber
+                    : null;
+
+                return [
+                    'item_name' => $name,
+                    'description' => implode(' | ', $parts),
+                    'article_description' => implode(' | ', $parts),
+
+                    'qty' => $qty,
+                    'unit' => $item->unit ?: '',
+
+                    'image_urls' => $photoPaths
+                        ->filter()
+                        ->map(fn($path) => $this->imagePathToUrl($path))
+                        ->filter()
+                        ->unique()
+                        ->values()
+                        ->all(),
+
+                    'selected_vendor' => $selectedOffer
+                        ? (
+                            $selectedOffer->vendor_name
+                            ?: optional($selectedOffer->vendor)->name
+                            ?: null
+                        )
+                        : null,
+
+                    'selected_vendor_name' => $selectedOffer
+                        ? (
+                            $selectedOffer->vendor_name
+                            ?: optional($selectedOffer->vendor)->name
+                            ?: null
+                        )
+                        : null,
+
+                    'selected_price' => $totalPrice !== null
+                        ? $this->currency($totalPrice)
+                        : null,
+
+                    'selected_price_display' => $totalPrice !== null
+                        ? $this->currency($totalPrice)
+                        : null,
+
+                    'unit_price' => $unitPrice !== null
+                        ? $this->currency($unitPrice)
+                        : null,
+                ];
+            })
+            ->values()
+            ->all();
     }
 
     protected function requestName(PurchaseRequest $purchaseRequest): string
@@ -257,11 +366,19 @@ class PurchaseRequestSummaryPrintController extends Controller
         }
 
         $selectedItemTotal = collect($purchaseRequest->items ?? [])
-            ->flatMap(function ($item) {
-                return collect($item->vendorOffers ?? [])->where('is_selected_by_accounting', true);
-            })
-            ->sum(function ($offer) {
-                return (float) ($offer->offer_total ?? 0);
+            ->sum(function ($item) {
+                $selectedOffer = collect($item->vendorOffers ?? [])
+                    ->firstWhere('is_selected_by_accounting', true);
+
+                if (! $selectedOffer || $selectedOffer->offer_total === null) {
+                    return 0;
+                }
+
+                $qty = is_numeric($item->qty ?? null)
+                    ? (float) $item->qty
+                    : 1;
+
+                return (float) $selectedOffer->offer_total * $qty;
             });
 
         return $selectedItemTotal > 0 ? (float) $selectedItemTotal : null;

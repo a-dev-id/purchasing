@@ -1,28 +1,95 @@
 <?php
 
 use Illuminate\Support\Facades\Route;
+use App\Http\Controllers\PurchaseRequestReminderController;
+use App\Http\Controllers\PurchaseRequestViewController;
+use App\Http\Controllers\PurchaseRequestSummaryPrintController;
+use App\Http\Controllers\Purchasing\V2\DashboardController;
+use App\Http\Controllers\Purchasing\V2\ItemMasterController;
+use App\Http\Controllers\Purchasing\V2\PurchaseRequestController;
+use App\Http\Controllers\Purchasing\V2\PurchaseRequestPurchasingController;
+use App\Http\Controllers\Purchasing\V2\PurchaseRequestCostControlController;
+use App\Http\Controllers\Purchasing\V2\PurchaseRequestGmController;
 
 Route::get('/', fn() => view('app-select'))->name('app.select');
-
-
-use App\Http\Controllers\PurchaseRequestReminderController;
 
 Route::get(
     '/cron/purchase-requests/reminders/{token}',
     [PurchaseRequestReminderController::class, 'run']
 )->name('cron.purchase-requests.reminders');
 
-use App\Http\Controllers\PurchaseRequestViewController;
-
 Route::middleware(['auth'])->group(function () {
     Route::get('/purchase-requests/{purchaseRequest}/view-form', [PurchaseRequestViewController::class, 'show'])
         ->name('purchase-requests.view-form');
-});
 
-
-use App\Http\Controllers\PurchaseRequestSummaryPrintController;
-
-Route::middleware(['auth'])->group(function () {
     Route::get('/purchase-requests/summary-print', [PurchaseRequestSummaryPrintController::class, 'index'])
         ->name('purchase-requests.summary-print');
 });
+
+// --- Purchasing Lite UI ---
+Route::middleware(['auth'])
+    ->prefix('purchasing/v2')
+    ->name('purchasing.v2.')
+    ->group(function () {
+        Route::get('/', [DashboardController::class, 'index'])
+            ->name('dashboard');
+
+        Route::get('/dashboard', [DashboardController::class, 'index'])
+            ->name('dashboard.index');
+
+        Route::get('/need-my-action', [PurchaseRequestController::class, 'needMyAction'])
+            ->name('need-my-action');
+
+        // Purchase Requests
+        Route::get('/requests', [PurchaseRequestController::class, 'index'])
+            ->name('requests.index');
+
+        Route::get('/requests/create', [PurchaseRequestController::class, 'create'])
+            ->name('requests.create');
+
+        Route::post('/requests', [PurchaseRequestController::class, 'store'])
+            ->name('requests.store');
+
+        Route::get('/requests/{purchaseRequest}', [PurchaseRequestController::class, 'show'])
+            ->name('requests.show');
+
+        Route::post('/requests/{purchaseRequest}/submit', [PurchaseRequestController::class, 'submit'])
+            ->name('requests.submit');
+
+        // Purchasing Actions
+        Route::post('/requests/{purchaseRequest}/vendor-offers', [PurchaseRequestPurchasingController::class, 'saveVendorOffers'])
+            ->name('requests.vendor-offers.save');
+
+        Route::post('/requests/{purchaseRequest}/submit-to-accounting', [PurchaseRequestPurchasingController::class, 'submitToAccounting'])
+            ->name('requests.submit-to-accounting');
+
+        // Cost Control Actions
+        Route::post('/requests/{purchaseRequest}/selected-vendors', [PurchaseRequestCostControlController::class, 'saveSelectedVendors'])
+            ->name('requests.save-selected-vendors');
+
+        Route::post('/requests/{purchaseRequest}/submit-to-gm', [PurchaseRequestCostControlController::class, 'submitToGm'])
+            ->name('requests.submit-to-gm');
+
+        // GM Actions
+        Route::post('/requests/{purchaseRequest}/gm-approve-items', [PurchaseRequestGmController::class, 'approveItems'])
+            ->name('requests.gm-approve-items');
+
+        // Item Master
+        Route::get('/items', [ItemMasterController::class, 'index'])
+            ->name('items.index');
+
+        Route::get('/items/create', [ItemMasterController::class, 'create'])
+            ->name('items.create');
+
+        Route::post('/items', [ItemMasterController::class, 'store'])
+            ->name('items.store');
+
+        Route::get('/items/{item}/edit', [ItemMasterController::class, 'edit'])
+            ->name('items.edit');
+
+        Route::put('/items/{item}', [ItemMasterController::class, 'update'])
+            ->name('items.update');
+
+        Route::delete('/item-photos/{photo}', [ItemMasterController::class, 'destroyPhoto'])
+            ->name('items.photos.destroy');
+    });

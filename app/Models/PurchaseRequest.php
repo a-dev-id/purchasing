@@ -9,6 +9,7 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
 class PurchaseRequest extends Model
 {
     protected $fillable = [
+        'parent_purchase_request_id',
         'request_number',
         'requested_by',
         'requester_name',
@@ -16,8 +17,10 @@ class PurchaseRequest extends Model
         'title',
         'priority',
         'date_needed',
+        'deferred_until',
         'status',
         'request_notes',
+        'split_reason',
         'current_status_at',
         'last_activity_at',
         'last_reminder_sent_at',
@@ -30,6 +33,7 @@ class PurchaseRequest extends Model
 
     protected $casts = [
         'date_needed' => 'date',
+        'deferred_until' => 'date',
         'current_status_at' => 'datetime',
         'last_activity_at' => 'datetime',
         'last_reminder_sent_at' => 'datetime',
@@ -44,19 +48,34 @@ class PurchaseRequest extends Model
         return $this->belongsTo(User::class, 'requested_by');
     }
 
+    public function parentPurchaseRequest(): BelongsTo
+    {
+        return $this->belongsTo(self::class, 'parent_purchase_request_id');
+    }
+
+    public function childPurchaseRequests(): HasMany
+    {
+        return $this->hasMany(self::class, 'parent_purchase_request_id')
+            ->latest('created_at');
+    }
+
     public function items(): HasMany
     {
-        return $this->hasMany(PurchaseRequestItem::class)->orderBy('sort_order');
+        return $this->hasMany(PurchaseRequestItem::class)
+            ->orderBy('sort_order');
     }
 
     public function vendorOffers(): HasMany
     {
-        return $this->hasMany(PurchaseRequestVendorOffer::class)->orderBy('offer_rank');
+        return $this->hasMany(PurchaseRequestVendorOffer::class)
+            ->orderBy('offer_rank');
     }
 
     public function logs(): HasMany
     {
-        return $this->hasMany(PurchaseRequestLog::class)->orderByDesc('acted_at')->orderByDesc('id');
+        return $this->hasMany(PurchaseRequestLog::class)
+            ->orderByDesc('acted_at')
+            ->orderByDesc('id');
     }
 
     public function reminderOwnerRole(): ?string
@@ -66,22 +85,23 @@ class PurchaseRequest extends Model
             'revision_from_accounting',
             'revision_from_gm',
             'revision_to_requester_from_accounting',
-            'revision_to_requester_from_gm'
-            => 'requester',
+            'revision_to_requester_from_gm' => 'requester',
 
             'submitted',
             'revision_to_purchasing_from_accounting',
-            'revision_to_purchasing_from_gm'
-            => 'purchasing',
+            'revision_to_purchasing_from_gm' => 'purchasing',
 
             'submitted_to_accounting',
             'on_hold_by_accounting',
-            'revision_to_accounting_from_gm'
-            => 'accounting',
+            'revision_to_accounting_from_gm' => 'accounting',
 
             'submitted_to_gm',
-            'on_hold_by_gm'
-            => 'gm',
+            'on_hold_by_gm' => 'gm',
+
+            'gm_approved',
+            'waiting_payment_by_fc',
+            'paid_to_vendor_by_fc',
+            'item_arrived_by_fc' => 'financial_controller',
 
             default => null,
         };
@@ -94,6 +114,7 @@ class PurchaseRequest extends Model
             'purchasing' => 'Purchasing',
             'accounting' => 'Accounting',
             'gm' => 'GM',
+            'financial_controller' => 'Financial Controller',
             default => null,
         };
     }
@@ -101,6 +122,16 @@ class PurchaseRequest extends Model
     public function isReminderEligible(): bool
     {
         return $this->reminderOwnerRole() !== null;
+    }
+
+    public function isChildPurchaseRequest(): bool
+    {
+        return ! empty($this->parent_purchase_request_id);
+    }
+
+    public function hasChildPurchaseRequests(): bool
+    {
+        return $this->childPurchaseRequests()->exists();
     }
 
     public function markActivity(?string $status = null): void
