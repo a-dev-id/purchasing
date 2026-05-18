@@ -69,7 +69,7 @@ return $qty * (float) ($selectedOffer->offer_total ?? 0);
             @endif
 
             <div class="bg-white border border-gray-400 overflow-x-auto mb-4">
-                <table class="w-full {{ $showBidColumns ? 'min-w-[2100px]' : 'min-w-[1450px]' }} border-collapse text-sm">
+                <table class="w-full {{ $showBidColumns ? 'min-w-[2250px]' : 'min-w-[1500px]' }} border-collapse text-sm">
                     <thead>
                         <tr class="bg-gray-200">
                             <th class="border border-gray-400 px-3 py-2 text-left whitespace-nowrap w-[50px]">
@@ -77,7 +77,7 @@ return $qty * (float) ($selectedOffer->offer_total ?? 0);
                             </th>
 
                             @if ($canGmApproveItems)
-                            <th class="border border-gray-400 px-3 py-2 text-center whitespace-nowrap w-[90px]">
+                            <th class="border border-gray-400 px-3 py-2 text-center whitespace-nowrap w-[230px]">
                                 Approve
                             </th>
                             @endif
@@ -142,6 +142,42 @@ return $qty * (float) ($selectedOffer->offer_total ?? 0);
                         $selectedTotalPrice = $qty * $selectedUnitPrice;
 
                         $selectedColumnClass = in_array($normalizedRole, ['gm', 'general manager'], true) ? '' : 'bg-green-50';
+
+                        $hasOldInput = old('_token') !== null;
+                        $oldApprovedItems = old('approved_items', []);
+
+                        $isApprovedChecked = $hasOldInput
+                        ? in_array((string) $requestItem->id, array_map('strval', (array) $oldApprovedItems), true)
+                        : true;
+
+                        $storedReason = (string) ($requestItem->gm_not_approved_reason ?? '');
+                        $storedReasonSelectValue = '';
+                        $storedReasonDetail = '';
+
+                        if ($storedReason === 'Canceled') {
+                        $storedReasonSelectValue = 'Canceled';
+                        } elseif (str_starts_with($storedReason, 'Reason: ')) {
+                        $storedReasonSelectValue = 'Reason';
+                        $storedReasonDetail = trim(substr($storedReason, 8));
+                        } elseif (str_starts_with($storedReason, 'Other: ')) {
+                        $storedReasonSelectValue = 'Reason';
+                        $storedReasonDetail = trim(substr($storedReason, 7));
+                        } elseif (filled($storedReason)) {
+                        $storedReasonSelectValue = 'Reason';
+                        $storedReasonDetail = $storedReason;
+                        }
+
+                        $selectedNotApprovedReason = old(
+                        "not_approved_reasons.{$requestItem->id}",
+                        $storedReasonSelectValue
+                        );
+
+                        $selectedReasonDetail = old(
+                        "not_approved_reason_details.{$requestItem->id}",
+                        $storedReasonDetail
+                        );
+
+                        $showReasonDetail = ! $isApprovedChecked && $selectedNotApprovedReason === 'Reason';
                         @endphp
 
                         <tr class="hover:bg-gray-50 align-top">
@@ -150,8 +186,34 @@ return $qty * (float) ($selectedOffer->offer_total ?? 0);
                             </td>
 
                             @if ($canGmApproveItems)
-                            <td class="border border-gray-300 px-3 py-2 text-center whitespace-nowrap">
-                                <input type="checkbox" name="approved_items[]" value="{{ $requestItem->id }}" checked class="h-4 w-4">
+                            <td class="border border-gray-300 px-3 py-2 text-center align-top">
+                                <input type="checkbox" name="approved_items[]" value="{{ $requestItem->id }}" class="h-4 w-4 gm-approve-checkbox" data-item-id="{{ $requestItem->id }}" @checked($isApprovedChecked)>
+
+                                <div class="{{ $isApprovedChecked ? 'hidden ' : '' }}mt-2 text-left gm-not-approved-reason-wrap" data-item-id="{{ $requestItem->id }}">
+                                    <label class="block text-[11px] font-bold text-gray-600 mb-1">
+                                        Not approve reason
+                                    </label>
+
+                                    <select name="not_approved_reasons[{{ $requestItem->id }}]" class="w-full border border-gray-300 px-2 py-1 text-xs gm-not-approved-reason" data-item-id="{{ $requestItem->id }}" @disabled($isApprovedChecked) @required(! $isApprovedChecked)>
+                                        <option value="">Select reason</option>
+
+                                        <option value="Reason" @selected($selectedNotApprovedReason==='Reason' )>
+                                            Reason
+                                        </option>
+
+                                        <option value="Canceled" @selected($selectedNotApprovedReason==='Canceled' )>
+                                            Canceled
+                                        </option>
+                                    </select>
+
+                                    <div class="{{ $showReasonDetail ? '' : 'hidden ' }}mt-2 gm-not-approved-reason-detail-wrap" data-item-id="{{ $requestItem->id }}">
+                                        <label class="block text-[11px] font-bold text-gray-600 mb-1">
+                                            Reason detail
+                                        </label>
+
+                                        <textarea name="not_approved_reason_details[{{ $requestItem->id }}]" rows="3" class="w-full border border-gray-300 px-2 py-1 text-xs gm-not-approved-reason-detail" data-item-id="{{ $requestItem->id }}" placeholder="Input reason..." @disabled(! $showReasonDetail) @required($showReasonDetail)>{{ $selectedReasonDetail }}</textarea>
+                                    </div>
+                                </div>
                             </td>
                             @endif
 
@@ -364,36 +426,81 @@ return $qty * (float) ($selectedOffer->offer_total ?? 0);
             GM Approval
         </div>
 
-        <div class="mb-3 rounded border border-yellow-500 bg-yellow-50 px-4 py-3 text-sm text-yellow-800">
-            Tick the items approved for purchase now. Unticked items will be moved to a new child PR using the deferred purchase date.
-        </div>
+        <input type="hidden" name="deferred_until" value="{{ old('deferred_until', $purchaseRequest->date_needed?->toDateString() ?? now()->addMonth()->toDateString()) }}">
 
-        <div class="mb-3 grid grid-cols-1 md:grid-cols-2 gap-3">
-            <div>
-                <label class="block text-xs font-bold text-gray-600 mb-1">
-                    Deferred purchase date
-                </label>
-
-                <input type="date" name="deferred_until" value="{{ old('deferred_until', now()->addMonth()->toDateString()) }}" min="{{ now()->toDateString() }}" class="w-full border border-gray-300 px-3 py-2 text-sm" required>
-
-                <div class="mt-1 text-xs text-gray-500">
-                    Unticked items will be moved to a new child PR using this date.
-                </div>
-            </div>
-
-            <div>
-                <label class="block text-xs font-bold text-gray-600 mb-1">
-                    GM Note
-                </label>
-
-                <input type="text" name="gm_note" class="w-full border border-gray-300 px-3 py-2 text-sm" placeholder="Example: Buy only urgent item this month">
-            </div>
-        </div>
-
-        <button type="submit" onclick="return confirm('Approve selected items? Unticked items will be moved to a new child PR.')" class="bg-gray-900 text-white px-4 py-2 rounded text-sm hover:bg-gray-700">
+        <button type="submit" onclick="return confirm('Approve selected items? Unticked Reason items will be moved to a new child PR. Unticked Canceled items will not be moved.')" class="bg-gray-900 text-white px-4 py-2 rounded text-sm hover:bg-gray-700">
             Approve Selected Items
         </button>
     </div>
 
 </form>
+@endif
+
+@if ($canGmApproveItems)
+<script>
+    document.addEventListener('DOMContentLoaded', function () {
+        const checkboxes = document.querySelectorAll('.gm-approve-checkbox');
+
+        checkboxes.forEach(function (checkbox) {
+            const itemId = checkbox.dataset.itemId;
+
+            const reasonWrap = document.querySelector(
+                '.gm-not-approved-reason-wrap[data-item-id="' + itemId + '"]'
+            );
+
+            const reasonSelect = document.querySelector(
+                '.gm-not-approved-reason[data-item-id="' + itemId + '"]'
+            );
+
+            const reasonDetailWrap = document.querySelector(
+                '.gm-not-approved-reason-detail-wrap[data-item-id="' + itemId + '"]'
+            );
+
+            const reasonDetailTextarea = document.querySelector(
+                '.gm-not-approved-reason-detail[data-item-id="' + itemId + '"]'
+            );
+
+            function toggleReasonDetail() {
+                if (!reasonSelect || !reasonDetailWrap || !reasonDetailTextarea) {
+                    return;
+                }
+
+                if (reasonSelect.value === 'Reason' && !checkbox.checked) {
+                    reasonDetailWrap.classList.remove('hidden');
+                    reasonDetailTextarea.disabled = false;
+                    reasonDetailTextarea.required = true;
+                } else {
+                    reasonDetailWrap.classList.add('hidden');
+                    reasonDetailTextarea.value = '';
+                    reasonDetailTextarea.disabled = true;
+                    reasonDetailTextarea.required = false;
+                }
+            }
+
+            function toggleReasonDropdown() {
+                if (!reasonWrap || !reasonSelect) {
+                    return;
+                }
+
+                if (checkbox.checked) {
+                    reasonWrap.classList.add('hidden');
+                    reasonSelect.value = '';
+                    reasonSelect.disabled = true;
+                    reasonSelect.required = false;
+                } else {
+                    reasonWrap.classList.remove('hidden');
+                    reasonSelect.disabled = false;
+                    reasonSelect.required = true;
+                }
+
+                toggleReasonDetail();
+            }
+
+            checkbox.addEventListener('change', toggleReasonDropdown);
+            reasonSelect.addEventListener('change', toggleReasonDetail);
+
+            toggleReasonDropdown();
+        });
+    });
+</script>
 @endif

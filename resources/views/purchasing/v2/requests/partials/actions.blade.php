@@ -6,6 +6,7 @@ $purchasingEditableStatuses = [
 'submitted',
 'revision_to_purchasing_from_accounting',
 'revision_to_purchasing_from_gm',
+'on_hold_by_gm',
 ];
 
 $canEditVendorOffers = in_array($normalizedRole, ['purchasing', 'admin'], true)
@@ -21,6 +22,15 @@ $isCostControlUser = in_array($normalizedRole, [
 $canSubmitToGm = $isCostControlUser
 && $purchaseRequest->status === 'submitted_to_accounting';
 
+$isGmUser = in_array($normalizedRole, [
+'admin',
+'gm',
+'general manager',
+], true);
+
+$canGmApproveItems = $isGmUser
+&& $purchaseRequest->status === 'submitted_to_gm';
+
 $allItemsHaveSelectedVendor = $purchaseRequest->items->every(function ($item) {
 return $item->vendorOffers->contains('is_selected_by_accounting', true);
 });
@@ -31,8 +41,8 @@ return $item->vendorOffers->contains('is_selected_by_accounting', true);
         Actions
     </div>
 
+    @if ($purchaseRequest->status === 'draft')
     <div class="flex flex-wrap gap-2">
-        @if ($purchaseRequest->status === 'draft')
         <form method="POST" action="{{ route('purchasing.v2.requests.submit', $purchaseRequest) }}" onsubmit="return confirm('Submit this purchase request?')">
             @csrf
 
@@ -44,7 +54,10 @@ return $item->vendorOffers->contains('is_selected_by_accounting', true);
         <a href="#" class="inline-block bg-white text-gray-900 border border-gray-400 px-4 py-2 rounded text-sm hover:bg-gray-100">
             Edit Draft
         </a>
-        @elseif ($canEditVendorOffers)
+    </div>
+
+    @elseif ($canEditVendorOffers)
+    <div class="flex flex-wrap gap-2">
         <form method="POST" action="{{ route('purchasing.v2.requests.submit-to-accounting', $purchaseRequest) }}" onsubmit="return confirm('Submit this purchase request to Accounting?')">
             @csrf
 
@@ -56,7 +69,10 @@ return $item->vendorOffers->contains('is_selected_by_accounting', true);
         <a href="#" class="inline-block bg-white text-gray-900 border border-gray-400 px-4 py-2 rounded text-sm hover:bg-gray-100">
             Return to Requester
         </a>
-        @elseif ($canSubmitToGm)
+    </div>
+
+    @elseif ($canSubmitToGm)
+    <div class="flex flex-wrap gap-2">
         <form method="POST" action="{{ route('purchasing.v2.requests.submit-to-gm', $purchaseRequest) }}" onsubmit="return confirm('Submit this purchase request to GM?')">
             @csrf
 
@@ -73,14 +89,60 @@ return $item->vendorOffers->contains('is_selected_by_accounting', true);
             Select one vendor for every item first.
         </span>
         @endif
-        @else
+    </div>
+
+    @elseif ($canGmApproveItems)
+    <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+        <form method="POST" action="{{ route('purchasing.v2.requests.gm-send-back-to-purchasing', $purchaseRequest) }}" class="border border-gray-300 bg-gray-50 p-4" onsubmit="return confirm('Send this purchase request back to Purchasing?')">
+            @csrf
+
+            <div class="mb-3 text-sm font-bold text-gray-900">
+                Send Back to Purchasing
+            </div>
+
+            <label class="block text-xs font-bold text-gray-700 mb-1">
+                Message to Purchasing
+            </label>
+
+            <textarea name="message" rows="4" class="w-full border border-gray-300 px-3 py-2 text-sm mb-3 focus:outline-none focus:ring-1 focus:ring-gray-700" placeholder="Explain what Purchasing needs to revise..." required>{{ old('message') }}</textarea>
+
+            <button type="submit" class="bg-white text-gray-900 border border-gray-400 px-4 py-2 rounded text-sm hover:bg-gray-100">
+                Send Back to Purchasing
+            </button>
+        </form>
+
+        <form method="POST" action="{{ route('purchasing.v2.requests.gm-reject', $purchaseRequest) }}" class="border border-red-300 bg-red-50 p-4" onsubmit="return confirm('Reject this purchase request?')">
+            @csrf
+
+            <div class="mb-3 text-sm font-bold text-red-700">
+                Reject PR
+            </div>
+
+            <label class="block text-xs font-bold text-red-700 mb-1">
+                Reject Message
+            </label>
+
+            <textarea name="message" rows="4" class="w-full border border-red-300 px-3 py-2 text-sm mb-3 focus:outline-none focus:ring-1 focus:ring-red-700" placeholder="Explain why this PR is rejected..." required>{{ old('message') }}</textarea>
+
+            <button type="submit" class="bg-red-600 text-white border border-red-600 px-4 py-2 rounded text-sm hover:bg-red-700">
+                Reject PR
+            </button>
+        </form>
+    </div>
+
+    @else
+    <div class="flex flex-wrap gap-2">
         <span class="inline-block bg-gray-100 text-gray-500 border border-gray-300 px-4 py-2 rounded text-sm">
             No action available
         </span>
-        @endif
+    </div>
+    @endif
 
+    @if (! in_array($purchaseRequest->status, ['rejected', 'cancelled', 'gm_approved'], true))
+    <div class="mt-4">
         <a href="#" class="inline-block bg-white text-red-700 border border-red-400 px-4 py-2 rounded text-sm hover:bg-red-50">
             Cancel
         </a>
     </div>
+    @endif
 </div>

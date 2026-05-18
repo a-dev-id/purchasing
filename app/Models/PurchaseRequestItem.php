@@ -18,6 +18,7 @@ class PurchaseRequestItem extends Model
         'purpose',
         'sort_order',
         'item_id',
+        'gm_not_approved_reason',
     ];
 
     protected $casts = [

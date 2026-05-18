@@ -107,7 +107,7 @@
     </div>
 
     <div class="bg-white border border-gray-400 overflow-x-auto mb-3">
-        <table class="w-full min-w-[1400px] border-collapse text-sm">
+        <table class="w-full min-w-[1450px] border-collapse text-sm">
             <thead>
                 <tr class="bg-gray-200">
                     <th class="border border-gray-400 px-3 py-2 text-left whitespace-nowrap w-[50px]">No</th>
@@ -128,13 +128,20 @@
                     </td>
 
                     <td class="border border-gray-300 px-2 py-2 relative">
-                        <input type="text" class="item-search w-full border border-gray-300 px-2 py-1 text-sm focus:outline-none focus:ring-1 focus:ring-gray-700" placeholder="Search item..." autocomplete="off">
+                        <div class="flex gap-1">
+                            <div class="relative flex-1">
+                                <input type="text" class="item-search w-full border border-gray-300 px-2 py-1 text-sm focus:outline-none focus:ring-1 focus:ring-gray-700" placeholder="Search item..." autocomplete="off">
+
+                                <div class="item-search-results hidden absolute z-50 left-0 right-0 top-[34px] max-h-56 overflow-y-auto bg-white border border-gray-400 shadow text-sm"></div>
+                            </div>
+
+                            <button type="button" class="open-add-item-modal bg-gray-900 text-white border border-gray-900 px-3 py-1 text-sm font-bold hover:bg-gray-700" title="Add new item">
+                                +
+                            </button>
+                        </div>
 
                         <input type="hidden" name="items[{{ $i }}][item_id]" class="item-id-hidden">
-
                         <input type="hidden" name="items[{{ $i }}][item_name]" class="item-name-hidden">
-
-                        <div class="item-search-results hidden absolute z-50 left-2 right-2 top-[38px] max-h-56 overflow-y-auto bg-white border border-gray-400 shadow text-sm"></div>
                     </td>
 
                     <td class="border border-gray-300 px-2 py-2">
@@ -200,6 +207,99 @@
     </div>
 </form>
 
+{{-- Quick Add Item Modal --}}
+<div id="add-item-modal" class="hidden fixed inset-0 z-50">
+    <div class="absolute inset-0 bg-black/40" data-close-add-item-modal></div>
+
+    <div class="relative mx-auto mt-10 w-[95%] max-w-5xl bg-white border border-gray-400 shadow-xl">
+        <div class="flex items-center justify-between border-b border-gray-300 px-4 py-3">
+            <div>
+                <h3 class="text-lg font-bold text-gray-900">
+                    Add Item
+                </h3>
+
+                <p class="text-sm text-gray-500">
+                    Add a new master item and use it directly in this purchase request
+                </p>
+            </div>
+
+            <button type="button" data-close-add-item-modal class="bg-white border border-gray-400 px-3 py-1 rounded text-sm hover:bg-gray-100">
+                X
+            </button>
+        </div>
+
+        <div class="p-4">
+            <div id="quick-item-error" class="hidden mb-4 bg-red-50 border border-red-400 text-red-700 px-4 py-3 text-sm"></div>
+
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
+                <div>
+                    <label class="block text-xs font-bold text-gray-700 mb-1">Item Name</label>
+                    <input type="text" id="quick_item_name" class="w-full border border-gray-400 px-3 py-2 text-sm" placeholder="Example: Cable">
+                </div>
+
+                <div>
+                    <label class="block text-xs font-bold text-gray-700 mb-1">SKU</label>
+                    <input type="text" id="quick_item_sku" class="w-full border border-gray-400 px-3 py-2 text-sm" placeholder="Example: ENG-CBL-001">
+                </div>
+
+                <div>
+                    <label class="block text-xs font-bold text-gray-700 mb-1">Category</label>
+                    <input type="text" id="quick_item_category" class="w-full border border-gray-400 px-3 py-2 text-sm" placeholder="Example: Engineering">
+                </div>
+
+                <div>
+                    <label class="block text-xs font-bold text-gray-700 mb-1">Brand</label>
+                    <input type="text" id="quick_item_brand" class="w-full border border-gray-400 px-3 py-2 text-sm" placeholder="Optional">
+                </div>
+
+                <div>
+                    <label class="block text-xs font-bold text-gray-700 mb-1">Default Unit</label>
+                    <input type="text" id="quick_item_default_unit" class="w-full border border-gray-400 px-3 py-2 text-sm" value="pcs">
+                </div>
+
+                <div>
+                    <label class="block text-xs font-bold text-gray-700 mb-1">Last Price</label>
+                    <input type="number" id="quick_item_last_price" class="w-full border border-gray-400 px-3 py-2 text-sm text-right" placeholder="Example: 50000">
+                </div>
+
+                <div>
+                    <label class="block text-xs font-bold text-gray-700 mb-1">Currency</label>
+                    <input type="text" id="quick_item_currency" class="w-full border border-gray-400 px-3 py-2 text-sm bg-gray-100" value="IDR">
+                </div>
+
+                <div>
+                    <label class="block text-xs font-bold text-gray-700 mb-1">Status</label>
+                    <select id="quick_item_is_active" class="w-full border border-gray-400 px-3 py-2 text-sm bg-white">
+                        <option value="1">Active</option>
+                        <option value="0">Inactive</option>
+                    </select>
+                </div>
+            </div>
+
+            <div class="mb-4">
+                <label class="block text-xs font-bold text-gray-700 mb-1">Specification</label>
+                <textarea id="quick_item_specification" rows="3" class="w-full border border-gray-400 px-3 py-2 text-sm" placeholder="Optional specification"></textarea>
+            </div>
+
+            <div>
+                <label class="block text-xs font-bold text-gray-700 mb-1">Item Photo</label>
+                <input type="file" id="quick_item_photo" class="w-full border border-gray-400 px-3 py-2 text-sm" accept="image/jpeg,image/png,image/webp">
+                <p class="text-xs text-gray-500 mt-1">Optional. You can upload JPG, PNG, or WebP image.</p>
+            </div>
+        </div>
+
+        <div class="flex justify-end gap-2 border-t border-gray-300 px-4 py-3">
+            <button type="button" data-close-add-item-modal class="bg-white text-gray-900 border border-gray-400 px-4 py-2 rounded text-sm hover:bg-gray-100">
+                Cancel
+            </button>
+
+            <button type="button" id="save-quick-item" class="bg-gray-900 text-white px-4 py-2 rounded text-sm hover:bg-gray-700">
+                Save Item
+            </button>
+        </div>
+    </div>
+</div>
+
 @php
 $masterItems = $items->map(function ($item) {
 return [
@@ -226,6 +326,7 @@ return [
 @push('scripts')
 <script>
     let itemIndex = document.querySelectorAll('#items-table-body tr').length;
+    let activeItemRow = null;
 
     const masterItems = window.masterItems || [];
 
@@ -354,10 +455,16 @@ return [
 
         if (filteredItems.length === 0) {
             resultsBox.innerHTML = `
-                <div class="px-3 py-2 text-gray-500">
-                    No item found
-                </div>
+                <button type="button" class="quick-add-from-search block w-full text-left px-3 py-2 text-gray-700 hover:bg-gray-100">
+                    No item found. Click here to add "${input.value}"
+                </button>
             `;
+
+            resultsBox.querySelector('.quick-add-from-search').addEventListener('click', function () {
+                activeItemRow = row;
+                openAddItemModal(input.value);
+                closeAllItemResults();
+            });
 
             resultsBox.classList.remove('hidden');
             return;
@@ -413,12 +520,26 @@ return [
                 </td>
 
                 <td class="border border-gray-300 px-2 py-2 relative">
-                    <input
-                        type="text"
-                        class="item-search w-full border border-gray-300 px-2 py-1 text-sm focus:outline-none focus:ring-1 focus:ring-gray-700"
-                        placeholder="Search item..."
-                        autocomplete="off"
-                    >
+                    <div class="flex gap-1">
+                        <div class="relative flex-1">
+                            <input
+                                type="text"
+                                class="item-search w-full border border-gray-300 px-2 py-1 text-sm focus:outline-none focus:ring-1 focus:ring-gray-700"
+                                placeholder="Search item..."
+                                autocomplete="off"
+                            >
+
+                            <div class="item-search-results hidden absolute z-50 left-0 right-0 top-[34px] max-h-56 overflow-y-auto bg-white border border-gray-400 shadow text-sm"></div>
+                        </div>
+
+                        <button
+                            type="button"
+                            class="open-add-item-modal bg-gray-900 text-white border border-gray-900 px-3 py-1 text-sm font-bold hover:bg-gray-700"
+                            title="Add new item"
+                        >
+                            +
+                        </button>
+                    </div>
 
                     <input
                         type="hidden"
@@ -431,8 +552,6 @@ return [
                         name="items[${index}][item_name]"
                         class="item-name-hidden"
                     >
-
-                    <div class="item-search-results hidden absolute z-50 left-2 right-2 top-[38px] max-h-56 overflow-y-auto bg-white border border-gray-400 shadow text-sm"></div>
                 </td>
 
                 <td class="border border-gray-300 px-2 py-2">
@@ -487,6 +606,43 @@ return [
         `;
     }
 
+    function openAddItemModal(defaultName = '') {
+        document.getElementById('quick-item-error').classList.add('hidden');
+        document.getElementById('quick-item-error').innerHTML = '';
+
+        document.getElementById('quick_item_name').value = defaultName || '';
+        document.getElementById('quick_item_sku').value = '';
+        document.getElementById('quick_item_category').value = '';
+        document.getElementById('quick_item_brand').value = '';
+        document.getElementById('quick_item_default_unit').value = 'pcs';
+        document.getElementById('quick_item_last_price').value = '';
+        document.getElementById('quick_item_currency').value = 'IDR';
+        document.getElementById('quick_item_is_active').value = '1';
+        document.getElementById('quick_item_specification').value = '';
+        document.getElementById('quick_item_photo').value = '';
+
+        document.getElementById('add-item-modal').classList.remove('hidden');
+
+        setTimeout(function () {
+            document.getElementById('quick_item_name').focus();
+        }, 50);
+    }
+
+    function closeAddItemModal() {
+        document.getElementById('add-item-modal').classList.add('hidden');
+    }
+
+    function normalizeQuickItem(item) {
+        return {
+            id: item.id,
+            name: item.name,
+            unit: item.default_unit || item.unit || 'pcs',
+            price: item.last_price || item.price || 0,
+            specification: item.default_specification || item.specification || '',
+            photos: item.photos || [],
+        };
+    }
+
     document.getElementById('add-item-row').addEventListener('click', function () {
         const tableBody = document.getElementById('items-table-body');
 
@@ -497,6 +653,11 @@ return [
 
     document.addEventListener('input', function (event) {
         if (event.target.classList.contains('item-search')) {
+            const row = event.target.closest('tr');
+
+            row.querySelector('.item-id-hidden').value = '';
+            row.querySelector('.item-name-hidden').value = event.target.value;
+
             renderItemResults(event.target);
         }
 
@@ -519,8 +680,91 @@ return [
     }, true);
 
     document.addEventListener('click', function (event) {
+        if (event.target.classList.contains('open-add-item-modal')) {
+            const row = event.target.closest('tr');
+            const searchInput = row.querySelector('.item-search');
+
+            activeItemRow = row;
+            openAddItemModal(searchInput.value);
+        }
+
         if (!event.target.closest('.item-search-results') && !event.target.closest('.item-search')) {
             closeAllItemResults();
+        }
+
+        if (event.target.hasAttribute('data-close-add-item-modal')) {
+            closeAddItemModal();
+        }
+    });
+
+    document.getElementById('save-quick-item').addEventListener('click', async function () {
+        const button = this;
+        const errorBox = document.getElementById('quick-item-error');
+
+        errorBox.classList.add('hidden');
+        errorBox.innerHTML = '';
+
+        const formData = new FormData();
+        formData.append('name', document.getElementById('quick_item_name').value);
+        formData.append('sku', document.getElementById('quick_item_sku').value);
+        formData.append('category', document.getElementById('quick_item_category').value);
+        formData.append('brand', document.getElementById('quick_item_brand').value);
+        formData.append('default_unit', document.getElementById('quick_item_default_unit').value);
+        formData.append('last_price', document.getElementById('quick_item_last_price').value);
+        formData.append('currency', document.getElementById('quick_item_currency').value);
+        formData.append('is_active', document.getElementById('quick_item_is_active').value);
+        formData.append('default_specification', document.getElementById('quick_item_specification').value);
+
+        const photo = document.getElementById('quick_item_photo').files[0];
+
+        if (photo) {
+            formData.append('photo', photo);
+        }
+
+        button.disabled = true;
+        button.innerText = 'Saving...';
+
+        try {
+            const response = await fetch('{{ route('purchasing.v2.items.quick-store') }}', {
+                method: 'POST',
+                headers: {
+                    'X-CSRF-TOKEN': '{{ csrf_token() }}',
+                    'Accept': 'application/json',
+                },
+                body: formData,
+            });
+
+            const data = await response.json();
+
+            if (!response.ok || !data.success) {
+                let message = 'Failed to save item.';
+
+                if (data.errors) {
+                    message = Object.values(data.errors).flat().join('<br>');
+                } else if (data.message) {
+                    message = data.message;
+                }
+
+                errorBox.innerHTML = message;
+                errorBox.classList.remove('hidden');
+                return;
+            }
+
+            const newItem = normalizeQuickItem(data.item);
+
+            masterItems.push(newItem);
+
+            if (activeItemRow) {
+                selectItem(activeItemRow, newItem);
+            }
+
+            closeAddItemModal();
+        } catch (error) {
+            errorBox.innerHTML = 'Failed to save item. Please try again.';
+            errorBox.classList.remove('hidden');
+        } finally {
+            button.disabled = false;
+            button.innerText = 'Save Item';
         }
     });
 </script>

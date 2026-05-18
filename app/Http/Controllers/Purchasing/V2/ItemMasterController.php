@@ -4,11 +4,12 @@ namespace App\Http\Controllers\Purchasing\V2;
 
 use App\Http\Controllers\Controller;
 use App\Models\Item;
-use Illuminate\Http\Request;
-use Illuminate\View\View;
 use App\Models\ItemPhoto;
+use Illuminate\Http\JsonResponse;
+use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Storage;
+use Illuminate\View\View;
 
 class ItemMasterController extends Controller
 {
@@ -101,6 +102,68 @@ class ItemMasterController extends Controller
             ->with('success', 'Item has been added successfully.');
     }
 
+    public function quickStore(Request $request): JsonResponse
+    {
+        $validated = $request->validate([
+            'name' => ['required', 'string', 'max:191'],
+            'sku' => ['nullable', 'string', 'max:191'],
+            'category' => ['nullable', 'string', 'max:191'],
+            'brand' => ['nullable', 'string', 'max:191'],
+            'default_unit' => ['nullable', 'string', 'max:191'],
+            'default_specification' => ['nullable', 'string'],
+            'last_price' => ['nullable', 'numeric', 'min:0'],
+            'currency' => ['nullable', 'string', 'in:IDR'],
+            'is_active' => ['nullable', 'boolean'],
+            'photo' => ['nullable', 'image', 'mimes:jpg,jpeg,png,webp', 'max:4096'],
+        ]);
+
+        $item = DB::transaction(function () use ($request, $validated) {
+            $item = Item::create([
+                'name' => $validated['name'],
+                'sku' => $validated['sku'] ?? null,
+                'category' => $validated['category'] ?? null,
+                'brand' => $validated['brand'] ?? null,
+                'default_unit' => ($validated['default_unit'] ?? null) ?: 'pcs',
+                'default_specification' => $validated['default_specification'] ?? null,
+                'last_price' => $validated['last_price'] ?? 0,
+                'currency' => ($validated['currency'] ?? null) ?: 'IDR',
+                'is_active' => $request->boolean('is_active', true),
+            ]);
+
+            if ($request->hasFile('photo')) {
+                $photo = $request->file('photo');
+                $path = $photo->store('item-photos', 'public');
+
+                ItemPhoto::create([
+                    'item_id' => $item->id,
+                    'file_path' => $path,
+                    'file_name' => $photo->getClientOriginalName(),
+                ]);
+            }
+
+            return $item->fresh('photos');
+        });
+
+        return response()->json([
+            'success' => true,
+            'item' => [
+                'id' => $item->id,
+                'name' => $item->name,
+                'default_unit' => $item->default_unit ?: 'pcs',
+                'default_specification' => $item->default_specification,
+                'last_price' => (float) ($item->last_price ?? 0),
+                'currency' => $item->currency ?: 'IDR',
+                'photos' => $item->photos
+                    ->map(fn(ItemPhoto $photo) => [
+                        'url' => asset('storage/' . $photo->file_path),
+                        'file_path' => $photo->file_path,
+                        'file_name' => $photo->file_name,
+                    ])
+                    ->values(),
+            ],
+        ]);
+    }
+
     public function edit(Item $item): View
     {
         return view('purchasing.v2.items.edit', [
@@ -140,7 +203,7 @@ class ItemMasterController extends Controller
 
                 $path = $photo->store('item-photos', 'public');
 
-                \App\Models\ItemPhoto::create([
+                ItemPhoto::create([
                     'item_id' => $item->id,
                     'file_path' => $path,
                     'file_name' => $photo->getClientOriginalName(),

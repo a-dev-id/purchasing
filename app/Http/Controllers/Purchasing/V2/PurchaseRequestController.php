@@ -81,9 +81,20 @@ class PurchaseRequestController extends Controller
     public function needMyAction(Request $request): View
     {
         $user = Auth::user();
-        $role = strtolower((string) ($user->role ?? ''));
 
-        $statuses = match ($role) {
+        $role = strtolower((string) ($user->role ?? ''));
+        $normalizedRole = str_replace(['-', '_'], ' ', $role);
+
+        $requesterRevisionStatuses = [
+            'revision_from_purchasing',
+            'revision_from_accounting',
+            'revision_from_gm',
+            'revision_to_requester_from_purchasing',
+            'revision_to_requester_from_accounting',
+            'revision_to_requester_from_gm',
+        ];
+
+        $statuses = match ($normalizedRole) {
             'purchasing' => [
                 'submitted',
                 'on_hold_by_gm',
@@ -92,36 +103,57 @@ class PurchaseRequestController extends Controller
             ],
 
             'accounting',
-            'cost_control',
-            'cost-control',
-            'cost control' => [
+            'cost control',
+            'cost controller' => [
                 'submitted_to_accounting',
                 'revision_to_accounting_from_gm',
             ],
 
-            'gm' => [
+            'gm',
+            'general manager' => [
                 'submitted_to_gm',
             ],
 
-            'financial_controller',
-            'financial-controller',
             'financial controller',
             'fc' => [
                 'gm_approved',
                 'waiting_payment_by_fc',
                 'paid_to_vendor_by_fc',
                 'item_arrived_by_fc',
+                'done',
+                'pending',
+                'purchase',
+                'on_progress',
+                'on_shipping',
             ],
 
-            default => [
-                'submitted',
-            ],
+            default => $requesterRevisionStatuses,
         };
 
         $query = PurchaseRequest::query()
             ->withCount('items')
             ->whereIn('status', $statuses)
             ->latest('updated_at');
+
+        if (! in_array($normalizedRole, [
+            'admin',
+            'purchasing',
+            'accounting',
+            'cost control',
+            'cost controller',
+            'gm',
+            'general manager',
+            'financial controller',
+            'fc',
+        ], true)) {
+            $query->where(function ($query) use ($user) {
+                $query->where('requested_by', $user->id);
+
+                if (! empty($user->department_name)) {
+                    $query->orWhere('department_name', $user->department_name);
+                }
+            });
+        }
 
         if ($request->filled('search')) {
             $search = $request->string('search')->toString();

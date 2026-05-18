@@ -19,6 +19,11 @@ class PurchaseRequest extends Model
         'date_needed',
         'deferred_until',
         'status',
+
+        'fc_action_status',
+        'fc_remarks',
+        'fc_action_updated_at',
+
         'request_notes',
         'split_reason',
         'current_status_at',
@@ -41,6 +46,7 @@ class PurchaseRequest extends Model
         'approved_at' => 'datetime',
         'cancelled_at' => 'datetime',
         'received_at' => 'datetime',
+        'fc_action_updated_at' => 'datetime',
     ];
 
     public function requester(): BelongsTo
@@ -98,10 +104,7 @@ class PurchaseRequest extends Model
             'submitted_to_gm',
             'on_hold_by_gm' => 'gm',
 
-            'gm_approved',
-            'waiting_payment_by_fc',
-            'paid_to_vendor_by_fc',
-            'item_arrived_by_fc' => 'financial_controller',
+            'gm_approved' => 'financial_controller',
 
             default => null,
         };
@@ -150,6 +153,15 @@ class PurchaseRequest extends Model
     {
         $this->last_activity_at = now();
         $this->last_reminder_sent_at = null;
+        $this->save();
+    }
+
+    public function updateFcAction(?string $actionStatus, ?string $remarks = null): void
+    {
+        $this->fc_action_status = $actionStatus;
+        $this->fc_remarks = $remarks;
+        $this->fc_action_updated_at = now();
+        $this->last_activity_at = now();
         $this->save();
     }
 }

@@ -1,5 +1,7 @@
 <?php
 
+use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Route;
 use App\Http\Controllers\PurchaseRequestReminderController;
 use App\Http\Controllers\PurchaseRequestViewController;
@@ -37,8 +39,20 @@ Route::middleware(['auth'])
         Route::get('/dashboard', [DashboardController::class, 'index'])
             ->name('dashboard.index');
 
+        Route::post('/requests/{purchaseRequest}/fc-status', [DashboardController::class, 'updateFcStatus'])
+            ->name('requests.fc-status.update');
+
         Route::get('/need-my-action', [PurchaseRequestController::class, 'needMyAction'])
             ->name('need-my-action');
+
+        Route::post('/logout', function (Request $request) {
+            Auth::logout();
+
+            $request->session()->invalidate();
+            $request->session()->regenerateToken();
+
+            return redirect('/purchasing/login');
+        })->name('logout');
 
         // Purchase Requests
         Route::get('/requests', [PurchaseRequestController::class, 'index'])
@@ -74,6 +88,12 @@ Route::middleware(['auth'])
         Route::post('/requests/{purchaseRequest}/gm-approve-items', [PurchaseRequestGmController::class, 'approveItems'])
             ->name('requests.gm-approve-items');
 
+        Route::post('/requests/{purchaseRequest}/gm-send-back-to-purchasing', [PurchaseRequestGmController::class, 'sendBackToPurchasing'])
+            ->name('requests.gm-send-back-to-purchasing');
+
+        Route::post('/requests/{purchaseRequest}/gm-reject', [PurchaseRequestGmController::class, 'reject'])
+            ->name('requests.gm-reject');
+
         // Item Master
         Route::get('/items', [ItemMasterController::class, 'index'])
             ->name('items.index');
@@ -83,6 +103,9 @@ Route::middleware(['auth'])
 
         Route::post('/items', [ItemMasterController::class, 'store'])
             ->name('items.store');
+
+        Route::post('/items/quick-store', [ItemMasterController::class, 'quickStore'])
+            ->name('items.quick-store');
 
         Route::get('/items/{item}/edit', [ItemMasterController::class, 'edit'])
             ->name('items.edit');

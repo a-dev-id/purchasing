@@ -10,8 +10,18 @@
             </p>
         </div>
 
-        <div class="text-sm text-gray-700">
-            {{ auth()->user()->name ?? 'User' }}
+        <div class="flex items-center gap-3">
+            <span class="text-sm text-gray-700">
+                {{ auth()->user()->name ?? 'User' }}
+            </span>
+
+            <form method="POST" action="{{ route('purchasing.v2.logout') }}">
+                @csrf
+
+                <button type="submit" onclick="return confirm('Logout now?')" class="bg-white text-red-700 border border-red-400 px-3 py-1.5 rounded text-sm hover:bg-red-50">
+                    Logout
+                </button>
+            </form>
         </div>
     </div>
 </div>
