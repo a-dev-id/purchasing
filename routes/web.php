@@ -64,6 +64,12 @@ Route::middleware(['auth'])
         Route::post('/requests', [PurchaseRequestController::class, 'store'])
             ->name('requests.store');
 
+        Route::get('/requests/{purchaseRequest}/edit', [PurchaseRequestController::class, 'edit'])
+            ->name('requests.edit');
+
+        Route::put('/requests/{purchaseRequest}', [PurchaseRequestController::class, 'update'])
+            ->name('requests.update');
+
         Route::get('/requests/{purchaseRequest}', [PurchaseRequestController::class, 'show'])
             ->name('requests.show');
 
@@ -76,6 +82,12 @@ Route::middleware(['auth'])
 
         Route::post('/requests/{purchaseRequest}/submit-to-accounting', [PurchaseRequestPurchasingController::class, 'submitToAccounting'])
             ->name('requests.submit-to-accounting');
+
+        Route::post('/requests/{purchaseRequest}/return-to-requester', [PurchaseRequestPurchasingController::class, 'returnToRequester'])
+            ->name('requests.return-to-requester');
+
+        Route::post('/requests/{purchaseRequest}/reject', [PurchaseRequestPurchasingController::class, 'reject'])
+            ->name('requests.reject');
 
         // Cost Control Actions
         Route::post('/requests/{purchaseRequest}/selected-vendors', [PurchaseRequestCostControlController::class, 'saveSelectedVendors'])
@@ -91,8 +103,21 @@ Route::middleware(['auth'])
         Route::post('/requests/{purchaseRequest}/gm-send-back-to-purchasing', [PurchaseRequestGmController::class, 'sendBackToPurchasing'])
             ->name('requests.gm-send-back-to-purchasing');
 
+        Route::post('/requests/{purchaseRequest}/gm-send-back-to-requester', [PurchaseRequestGmController::class, 'sendBackToRequester'])
+            ->name('requests.gm-send-back-to-requester');
+
         Route::post('/requests/{purchaseRequest}/gm-reject', [PurchaseRequestGmController::class, 'reject'])
             ->name('requests.gm-reject');
+
+        /*
+        |--------------------------------------------------------------------------
+        | Legacy Action Route Aliases
+        |--------------------------------------------------------------------------
+        | Keep this alias so older Blade files still work.
+        */
+
+        Route::post('/requests/{purchaseRequest}/send-back-to-purchasing', [PurchaseRequestGmController::class, 'sendBackToPurchasing'])
+            ->name('requests.send-back-to-purchasing');
 
         // Item Master
         Route::get('/items', [ItemMasterController::class, 'index'])
@@ -106,6 +131,9 @@ Route::middleware(['auth'])
 
         Route::post('/items/quick-store', [ItemMasterController::class, 'quickStore'])
             ->name('items.quick-store');
+
+        Route::post('/items/{item}/quick-photo', [ItemMasterController::class, 'quickPhotoStore'])
+            ->name('items.quick-photo-store');
 
         Route::get('/items/{item}/edit', [ItemMasterController::class, 'edit'])
             ->name('items.edit');

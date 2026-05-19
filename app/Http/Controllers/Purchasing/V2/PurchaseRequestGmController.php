@@ -242,15 +242,14 @@ class PurchaseRequestGmController extends Controller
             return back()->with('error', 'This purchase request is not waiting for GM approval.');
         }
 
-        $validated = $request->validate([
-            'message' => ['required', 'string', 'max:2000'],
-        ]);
+        $message = $this->validateActionMessage($request);
 
-        DB::transaction(function () use ($purchaseRequest, $validated) {
+        DB::transaction(function () use ($purchaseRequest, $message) {
             $fromStatus = $purchaseRequest->status;
+            $toStatus = 'revision_to_purchasing_from_gm';
 
             $purchaseRequest->update([
-                'status' => 'revision_to_purchasing_from_gm',
+                'status' => $toStatus,
                 'current_status_at' => now(),
                 'last_activity_at' => now(),
             ]);
@@ -259,14 +258,48 @@ class PurchaseRequestGmController extends Controller
                 $purchaseRequest,
                 'gm_send_back_to_purchasing',
                 $fromStatus,
-                'revision_to_purchasing_from_gm',
-                $validated['message']
+                $toStatus,
+                $message
             );
         });
 
         return redirect()
             ->route('purchasing.v2.requests.show', $purchaseRequest)
             ->with('success', 'Purchase request has been sent back to Purchasing.');
+    }
+
+    public function sendBackToRequester(Request $request, PurchaseRequest $purchaseRequest)
+    {
+        abort_unless($this->isGmUser(), 403);
+
+        if ($purchaseRequest->status !== 'submitted_to_gm') {
+            return back()->with('error', 'This purchase request is not waiting for GM approval.');
+        }
+
+        $message = $this->validateActionMessage($request);
+
+        DB::transaction(function () use ($purchaseRequest, $message) {
+            $fromStatus = $purchaseRequest->status;
+            $toStatus = 'revision_to_requester_from_gm';
+
+            $purchaseRequest->update([
+                'status' => $toStatus,
+                'current_status_at' => now(),
+                'last_activity_at' => now(),
+            ]);
+
+            $this->writeLitePrLog(
+                $purchaseRequest,
+                'gm_send_back_to_requester',
+                $fromStatus,
+                $toStatus,
+                $message
+            );
+        });
+
+        return redirect()
+            ->route('purchasing.v2.requests.show', $purchaseRequest)
+            ->with('success', 'Purchase request has been returned to the requester.');
     }
 
     public function reject(Request $request, PurchaseRequest $purchaseRequest)
@@ -277,15 +310,14 @@ class PurchaseRequestGmController extends Controller
             return back()->with('error', 'This purchase request is not waiting for GM approval.');
         }
 
-        $validated = $request->validate([
-            'message' => ['required', 'string', 'max:2000'],
-        ]);
+        $message = $this->validateActionMessage($request);
 
-        DB::transaction(function () use ($purchaseRequest, $validated) {
+        DB::transaction(function () use ($purchaseRequest, $message) {
             $fromStatus = $purchaseRequest->status;
+            $toStatus = 'rejected';
 
             $updateData = [
-                'status' => 'rejected',
+                'status' => $toStatus,
                 'current_status_at' => now(),
                 'last_activity_at' => now(),
             ];
@@ -300,8 +332,8 @@ class PurchaseRequestGmController extends Controller
                 $purchaseRequest,
                 'gm_reject',
                 $fromStatus,
-                'rejected',
-                $validated['message']
+                $toStatus,
+                $message
             );
         });
 
@@ -376,6 +408,28 @@ class PurchaseRequestGmController extends Controller
         }
 
         return $baseNumber . '-' . now()->format('His');
+    }
+
+    private function validateActionMessage(Request $request): string
+    {
+        $validated = $request->validate([
+            'message' => ['nullable', 'string', 'max:2000'],
+            'remark' => ['nullable', 'string', 'max:2000'],
+        ]);
+
+        $message = trim((string) ($validated['message'] ?? $validated['remark'] ?? ''));
+
+        if ($message === '') {
+            abort(redirect()
+                ->back()
+                ->withErrors([
+                    'message' => 'Remark / Message is required.',
+                    'remark' => 'Remark / Message is required.',
+                ])
+                ->withInput());
+        }
+
+        return $message;
     }
 
     private function isGmUser(): bool

@@ -65,6 +65,8 @@ class DashboardController extends Controller
             ->limit(30)
             ->get();
 
+        $this->attachDashboardRemarks($purchaseRequests);
+
         $statuses = PurchaseRequest::query()
             ->where('status', '!=', 'draft')
             ->whereNotNull('status')
@@ -140,6 +142,128 @@ class DashboardController extends Controller
         return redirect()
             ->route('purchasing.v2.dashboard', request()->only(['search', 'status', 'department']))
             ->with('success', 'PR status and remarks have been updated.');
+    }
+
+    private function attachDashboardRemarks($purchaseRequests): void
+    {
+        if ($purchaseRequests->isEmpty()) {
+            return;
+        }
+
+        $returnedToRequesterStatuses = [
+            'revision_from_purchasing',
+            'revision_from_accounting',
+            'revision_from_gm',
+            'revision_to_requester_from_purchasing',
+            'revision_to_requester_from_accounting',
+            'revision_to_requester_from_gm',
+        ];
+
+        $rejectedStatuses = [
+            'rejected',
+        ];
+
+        $fcRemarkStatuses = [
+            'done',
+            'cancelled',
+            'pending',
+            'purchase',
+            'on_progress',
+            'on_shipping',
+            'waiting_for_payment',
+            'waiting_payment_by_fc',
+            'paid_to_vendor_by_fc',
+            'item_arrived_by_fc',
+        ];
+
+        /*
+        |--------------------------------------------------------------------------
+        | Load dashboard remarks only for statuses that should display remarks.
+        |--------------------------------------------------------------------------
+        | 1. Returned to requester: show latest return message.
+        | 2. Rejected: show latest rejection message.
+        | 3. FC action statuses: show FC remarks.
+        | Normal submitted/on-purchasing PRs must show "-".
+        */
+        $logRemarkPurchaseRequestIds = $purchaseRequests
+            ->filter(function ($purchaseRequest) use ($returnedToRequesterStatuses, $rejectedStatuses) {
+                return in_array($purchaseRequest->status, $returnedToRequesterStatuses, true)
+                    || in_array($purchaseRequest->status, $rejectedStatuses, true);
+            })
+            ->pluck('id')
+            ->filter()
+            ->values();
+
+        $latestLogRemarks = collect();
+
+        if ($logRemarkPurchaseRequestIds->isNotEmpty() && Schema::hasTable('purchase_request_logs')) {
+            $messageColumn = null;
+
+            foreach (['message', 'remarks', 'notes'] as $column) {
+                if (Schema::hasColumn('purchase_request_logs', $column)) {
+                    $messageColumn = $column;
+                    break;
+                }
+            }
+
+            if ($messageColumn && Schema::hasColumn('purchase_request_logs', 'purchase_request_id')) {
+                $orderColumn = 'id';
+
+                if (Schema::hasColumn('purchase_request_logs', 'acted_at')) {
+                    $orderColumn = 'acted_at';
+                } elseif (Schema::hasColumn('purchase_request_logs', 'created_at')) {
+                    $orderColumn = 'created_at';
+                }
+
+                $logs = DB::table('purchase_request_logs')
+                    ->whereIn('purchase_request_id', $logRemarkPurchaseRequestIds)
+                    ->whereNotNull($messageColumn)
+                    ->where($messageColumn, '!=', '')
+                    ->when(Schema::hasColumn('purchase_request_logs', 'action'), function ($query) {
+                        $query->whereIn('action', [
+                            'purchasing_return_to_requester',
+                            'gm_send_back_to_requester',
+                            'gm_send_back_to_purchasing',
+                            'purchasing_reject',
+                            'gm_reject',
+                        ]);
+                    })
+                    ->orderBy('purchase_request_id')
+                    ->orderByDesc($orderColumn)
+                    ->orderByDesc('id')
+                    ->get();
+
+                $latestLogRemarks = $logs
+                    ->groupBy('purchase_request_id')
+                    ->map(function ($rows) use ($messageColumn) {
+                        return trim((string) ($rows->first()->{$messageColumn} ?? ''));
+                    });
+            }
+        }
+
+        foreach ($purchaseRequests as $purchaseRequest) {
+            $isReturnedToRequester = in_array($purchaseRequest->status, $returnedToRequesterStatuses, true);
+            $isRejected = in_array($purchaseRequest->status, $rejectedStatuses, true);
+            $isFcRemarkStatus = in_array($purchaseRequest->status, $fcRemarkStatuses, true);
+
+            $latestLogRemark = ($isReturnedToRequester || $isRejected)
+                ? trim((string) ($latestLogRemarks[$purchaseRequest->id] ?? ''))
+                : '';
+
+            $fcRemark = $isFcRemarkStatus
+                ? trim((string) ($purchaseRequest->fc_remarks ?? ''))
+                : '';
+
+            $dashboardRemark = $latestLogRemark !== ''
+                ? $latestLogRemark
+                : $fcRemark;
+
+            $purchaseRequest->setAttribute('latest_action_remark', $latestLogRemark ?: null);
+            $purchaseRequest->setAttribute('dashboard_remark', $dashboardRemark ?: null);
+            $purchaseRequest->setAttribute('dashboard_remarks', $dashboardRemark ?: null);
+            $purchaseRequest->setAttribute('remarks', $dashboardRemark ?: null);
+            $purchaseRequest->setAttribute('fc_remarks', $dashboardRemark ?: null);
+        }
     }
 
     private function buildStatusLogMessage(

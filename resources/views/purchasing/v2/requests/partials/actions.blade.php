@@ -1,148 +1,245 @@
 @php
-$userRole = strtolower((string) (auth()->user()->role ?? ''));
+$user = auth()->user();
+
+$userRole = strtolower((string) ($user->role ?? ''));
 $normalizedRole = str_replace(['-', '_'], ' ', $userRole);
 
-$purchasingEditableStatuses = [
+$isRequester = $normalizedRole === 'requester';
+$isAdmin = $normalizedRole === 'admin';
+
+$isPurchasing = in_array($normalizedRole, [
+'purchasing',
+'purchase',
+'purchasing staff',
+], true);
+
+$isOwnerOrSameDepartment =
+(int) $purchaseRequest->requested_by === (int) $user->id
+|| (
+! empty($user->department_name)
+&& $purchaseRequest->department_name === $user->department_name
+);
+
+$canEditDraft = $purchaseRequest->status === 'draft'
+&& (
+$isAdmin
+|| $isOwnerOrSameDepartment
+);
+
+$requesterEditableStatuses = [
+'revision_from_purchasing',
+'revision_from_accounting',
+'revision_from_gm',
+'revision_to_requester_from_accounting',
+'revision_to_requester_from_gm',
+];
+
+$canEditReturnedRequest = in_array($purchaseRequest->status, $requesterEditableStatuses, true)
+&& (
+$isAdmin
+|| (
+$isRequester
+&& $isOwnerOrSameDepartment
+)
+);
+
+$canEditRequest = $canEditDraft || $canEditReturnedRequest;
+
+$canSubmitDraft = $canEditDraft && $purchaseRequest->status === 'draft';
+
+$purchasingActionStatuses = [
 'submitted',
 'revision_to_purchasing_from_accounting',
 'revision_to_purchasing_from_gm',
 'on_hold_by_gm',
 ];
 
-$canEditVendorOffers = in_array($normalizedRole, ['purchasing', 'admin'], true)
-&& in_array($purchaseRequest->status, $purchasingEditableStatuses, true);
+$canPurchasingAction = ($isAdmin || $isPurchasing)
+&& in_array($purchaseRequest->status, $purchasingActionStatuses, true);
 
-$isCostControlUser = in_array($normalizedRole, [
-'admin',
-'accounting',
-'cost control',
-'cost controller',
-], true);
+$canSubmitToAccounting = $canPurchasingAction;
+$canReturnToRequester = $canPurchasingAction;
+$canRejectRequest = $canPurchasingAction;
 
-$canSubmitToGm = $isCostControlUser
-&& $purchaseRequest->status === 'submitted_to_accounting';
-
-$isGmUser = in_array($normalizedRole, [
-'admin',
-'gm',
-'general manager',
-], true);
-
-$canGmApproveItems = $isGmUser
-&& $purchaseRequest->status === 'submitted_to_gm';
-
-$allItemsHaveSelectedVendor = $purchaseRequest->items->every(function ($item) {
-return $item->vendorOffers->contains('is_selected_by_accounting', true);
-});
+$showActions = $canEditRequest
+|| $canSubmitDraft
+|| $canSubmitToAccounting
+|| $canReturnToRequester
+|| $canRejectRequest;
 @endphp
 
-<div class="bg-white border border-gray-300 p-4">
-    <div class="text-sm font-bold text-gray-900 mb-3">
+@if ($showActions)
+<div class="bg-white border border-gray-300 p-4 mt-4">
+    <h3 class="text-base font-bold text-gray-900 mb-4">
         Actions
-    </div>
+    </h3>
 
-    @if ($purchaseRequest->status === 'draft')
     <div class="flex flex-wrap gap-2">
-        <form method="POST" action="{{ route('purchasing.v2.requests.submit', $purchaseRequest) }}" onsubmit="return confirm('Submit this purchase request?')">
+        @if ($canSubmitDraft)
+        <form method="POST" action="{{ route('purchasing.v2.requests.submit', $purchaseRequest) }}">
             @csrf
 
-            <button type="submit" class="bg-gray-900 text-white px-4 py-2 rounded text-sm hover:bg-gray-700">
+            <button type="submit" onclick="return confirm('Submit this purchase request to Purchasing?')" class="bg-gray-900 text-white px-4 py-2 rounded text-sm hover:bg-gray-700">
                 Submit Request
             </button>
         </form>
+        @endif
 
-        <a href="#" class="inline-block bg-white text-gray-900 border border-gray-400 px-4 py-2 rounded text-sm hover:bg-gray-100">
-            Edit Draft
+        @if ($canEditRequest)
+        <a href="{{ route('purchasing.v2.requests.edit', $purchaseRequest) }}" class="inline-block bg-white text-gray-900 border border-gray-400 px-4 py-2 rounded text-sm hover:bg-gray-100">
+            Edit Request
         </a>
-    </div>
+        @endif
 
-    @elseif ($canEditVendorOffers)
-    <div class="flex flex-wrap gap-2">
-        <form method="POST" action="{{ route('purchasing.v2.requests.submit-to-accounting', $purchaseRequest) }}" onsubmit="return confirm('Submit this purchase request to Accounting?')">
+        @if ($canSubmitToAccounting)
+        <form method="POST" action="{{ route('purchasing.v2.requests.submit-to-accounting', $purchaseRequest) }}">
             @csrf
 
-            <button type="submit" class="bg-gray-900 text-white px-4 py-2 rounded text-sm hover:bg-gray-700">
+            <button type="submit" onclick="return confirm('Submit this purchase request to Accounting / Cost Control? Please make sure all vendor prices are saved first.')" class="bg-gray-900 text-white px-4 py-2 rounded text-sm hover:bg-gray-700">
                 Submit to Accounting
             </button>
         </form>
+        @endif
 
-        <a href="#" class="inline-block bg-white text-gray-900 border border-gray-400 px-4 py-2 rounded text-sm hover:bg-gray-100">
-            Return to Requester
-        </a>
-    </div>
+        @if ($canReturnToRequester)
+        <button type="button" data-pr-modal-open="return-to-requester-modal" class="bg-white text-gray-900 border border-gray-400 px-4 py-2 rounded text-sm hover:bg-gray-100">
+            Send Back to Requester
+        </button>
+        @endif
 
-    @elseif ($canSubmitToGm)
-    <div class="flex flex-wrap gap-2">
-        <form method="POST" action="{{ route('purchasing.v2.requests.submit-to-gm', $purchaseRequest) }}" onsubmit="return confirm('Submit this purchase request to GM?')">
-            @csrf
-
-            <button type="submit" @disabled(! $allItemsHaveSelectedVendor) class="px-4 py-2 rounded text-sm
-                        {{ $allItemsHaveSelectedVendor
-                            ? 'bg-gray-900 text-white hover:bg-gray-700'
-                            : 'bg-gray-100 text-gray-500 border border-gray-300 cursor-not-allowed' }}">
-                Submit to GM
-            </button>
-        </form>
-
-        @if (! $allItemsHaveSelectedVendor)
-        <span class="inline-block bg-yellow-50 text-yellow-700 border border-yellow-600 px-4 py-2 rounded text-sm">
-            Select one vendor for every item first.
-        </span>
+        @if ($canRejectRequest)
+        <button type="button" data-pr-modal-open="reject-request-modal" class="bg-white text-red-600 border border-red-500 px-4 py-2 rounded text-sm hover:bg-red-50">
+            Reject
+        </button>
         @endif
     </div>
 
-    @elseif ($canGmApproveItems)
-    <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
-        <form method="POST" action="{{ route('purchasing.v2.requests.gm-send-back-to-purchasing', $purchaseRequest) }}" class="border border-gray-300 bg-gray-50 p-4" onsubmit="return confirm('Send this purchase request back to Purchasing?')">
-            @csrf
-
-            <div class="mb-3 text-sm font-bold text-gray-900">
-                Send Back to Purchasing
-            </div>
-
-            <label class="block text-xs font-bold text-gray-700 mb-1">
-                Message to Purchasing
-            </label>
-
-            <textarea name="message" rows="4" class="w-full border border-gray-300 px-3 py-2 text-sm mb-3 focus:outline-none focus:ring-1 focus:ring-gray-700" placeholder="Explain what Purchasing needs to revise..." required>{{ old('message') }}</textarea>
-
-            <button type="submit" class="bg-white text-gray-900 border border-gray-400 px-4 py-2 rounded text-sm hover:bg-gray-100">
-                Send Back to Purchasing
-            </button>
-        </form>
-
-        <form method="POST" action="{{ route('purchasing.v2.requests.gm-reject', $purchaseRequest) }}" class="border border-red-300 bg-red-50 p-4" onsubmit="return confirm('Reject this purchase request?')">
-            @csrf
-
-            <div class="mb-3 text-sm font-bold text-red-700">
-                Reject PR
-            </div>
-
-            <label class="block text-xs font-bold text-red-700 mb-1">
-                Reject Message
-            </label>
-
-            <textarea name="message" rows="4" class="w-full border border-red-300 px-3 py-2 text-sm mb-3 focus:outline-none focus:ring-1 focus:ring-red-700" placeholder="Explain why this PR is rejected..." required>{{ old('message') }}</textarea>
-
-            <button type="submit" class="bg-red-600 text-white border border-red-600 px-4 py-2 rounded text-sm hover:bg-red-700">
-                Reject PR
-            </button>
-        </form>
-    </div>
-
-    @else
-    <div class="flex flex-wrap gap-2">
-        <span class="inline-block bg-gray-100 text-gray-500 border border-gray-300 px-4 py-2 rounded text-sm">
-            No action available
-        </span>
-    </div>
-    @endif
-
-    @if (! in_array($purchaseRequest->status, ['rejected', 'cancelled', 'gm_approved'], true))
     <div class="mt-4">
-        <a href="#" class="inline-block bg-white text-red-700 border border-red-400 px-4 py-2 rounded text-sm hover:bg-red-50">
+        <a href="{{ route('purchasing.v2.requests.index') }}" class="inline-block bg-white text-red-600 border border-red-500 px-4 py-2 rounded text-sm hover:bg-red-50">
             Cancel
         </a>
     </div>
-    @endif
 </div>
+@endif
+
+@if ($canReturnToRequester)
+<div id="return-to-requester-modal" class="hidden fixed inset-0 z-50 bg-black/40 items-center justify-center px-4">
+    <div class="bg-white w-full max-w-lg border border-gray-300 shadow-lg">
+        <div class="flex items-center justify-between border-b border-gray-200 px-4 py-3">
+            <h3 class="text-base font-bold text-gray-900">
+                Send Back to Requester
+            </h3>
+
+            <button type="button" data-pr-modal-close="return-to-requester-modal" class="text-gray-500 hover:text-gray-900 text-xl leading-none">
+                ×
+            </button>
+        </div>
+
+        <form method="POST" action="{{ route('purchasing.v2.requests.return-to-requester', $purchaseRequest) }}">
+            @csrf
+
+            <div class="p-4">
+                <label class="block text-sm font-bold text-gray-700 mb-2">
+                    Remark / Message
+                </label>
+
+                <textarea name="remark" rows="5" required class="w-full border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-gray-700" placeholder="Write the reason why this PR is returned to requester...">{{ old('remark') }}</textarea>
+            </div>
+
+            <div class="flex justify-end gap-2 border-t border-gray-200 px-4 py-3">
+                <button type="button" data-pr-modal-close="return-to-requester-modal" class="bg-white text-gray-900 border border-gray-400 px-4 py-2 rounded text-sm hover:bg-gray-100">
+                    Cancel
+                </button>
+
+                <button type="submit" class="bg-gray-900 text-white px-4 py-2 rounded text-sm hover:bg-gray-700">
+                    Submit Return
+                </button>
+            </div>
+        </form>
+    </div>
+</div>
+@endif
+
+@if ($canRejectRequest)
+<div id="reject-request-modal" class="hidden fixed inset-0 z-50 bg-black/40 items-center justify-center px-4">
+    <div class="bg-white w-full max-w-lg border border-gray-300 shadow-lg">
+        <div class="flex items-center justify-between border-b border-gray-200 px-4 py-3">
+            <h3 class="text-base font-bold text-gray-900">
+                Reject Purchase Request
+            </h3>
+
+            <button type="button" data-pr-modal-close="reject-request-modal" class="text-gray-500 hover:text-gray-900 text-xl leading-none">
+                ×
+            </button>
+        </div>
+
+        <form method="POST" action="{{ route('purchasing.v2.requests.reject', $purchaseRequest) }}">
+            @csrf
+
+            <div class="p-4">
+                <label class="block text-sm font-bold text-gray-700 mb-2">
+                    Rejection Message
+                </label>
+
+                <textarea name="remark" rows="5" required class="w-full border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-gray-700" placeholder="Write the reason why this PR is rejected...">{{ old('remark') }}</textarea>
+            </div>
+
+            <div class="flex justify-end gap-2 border-t border-gray-200 px-4 py-3">
+                <button type="button" data-pr-modal-close="reject-request-modal" class="bg-white text-gray-900 border border-gray-400 px-4 py-2 rounded text-sm hover:bg-gray-100">
+                    Cancel
+                </button>
+
+                <button type="submit" class="bg-red-600 text-white px-4 py-2 rounded text-sm hover:bg-red-700">
+                    Submit Reject
+                </button>
+            </div>
+        </form>
+    </div>
+</div>
+@endif
+
+<script>
+    document.addEventListener('DOMContentLoaded', function () {
+        function openModal(id) {
+            const modal = document.getElementById(id);
+
+            if (! modal) {
+                return;
+            }
+
+            modal.classList.remove('hidden');
+            modal.classList.add('flex');
+        }
+
+        function closeModal(id) {
+            const modal = document.getElementById(id);
+
+            if (! modal) {
+                return;
+            }
+
+            modal.classList.add('hidden');
+            modal.classList.remove('flex');
+        }
+
+        document.querySelectorAll('[data-pr-modal-open]').forEach(function (button) {
+            button.addEventListener('click', function () {
+                openModal(button.dataset.prModalOpen);
+            });
+        });
+
+        document.querySelectorAll('[data-pr-modal-close]').forEach(function (button) {
+            button.addEventListener('click', function () {
+                closeModal(button.dataset.prModalClose);
+            });
+        });
+
+        document.querySelectorAll('[id$="-modal"]').forEach(function (modal) {
+            modal.addEventListener('click', function (event) {
+                if (event.target === modal) {
+                    closeModal(modal.id);
+                }
+            });
+        });
+    });
+</script>

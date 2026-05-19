@@ -28,4 +28,16 @@ class Item extends Model
     {
         return $this->hasMany(ItemPhoto::class);
     }
+
+    public function updateLastPriceFromPurchasing(float|int|null $price, ?string $currency = 'IDR'): void
+    {
+        if ($price === null || $price <= 0) {
+            return;
+        }
+
+        $this->update([
+            'last_price' => $price,
+            'currency' => $currency ?: ($this->currency ?: 'IDR'),
+        ]);
+    }
 }

@@ -164,6 +164,35 @@ class ItemMasterController extends Controller
         ]);
     }
 
+    public function quickPhotoStore(Request $request, Item $item): JsonResponse
+    {
+        $validated = $request->validate([
+            'photo' => ['required', 'image', 'mimes:jpg,jpeg,png,webp', 'max:4096'],
+        ]);
+
+        $photoFile = $validated['photo'];
+
+        $photo = DB::transaction(function () use ($item, $photoFile) {
+            $path = $photoFile->store('item-photos', 'public');
+
+            return ItemPhoto::create([
+                'item_id' => $item->id,
+                'file_path' => $path,
+                'file_name' => $photoFile->getClientOriginalName(),
+            ]);
+        });
+
+        return response()->json([
+            'success' => true,
+            'photo' => [
+                'id' => $photo->id,
+                'url' => asset('storage/' . $photo->file_path),
+                'file_path' => $photo->file_path,
+                'file_name' => $photo->file_name,
+            ],
+        ]);
+    }
+
     public function edit(Item $item): View
     {
         return view('purchasing.v2.items.edit', [

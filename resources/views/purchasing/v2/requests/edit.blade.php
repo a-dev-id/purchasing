@@ -1,22 +1,26 @@
 @extends('layouts.purchasing-lite')
 
-@section('title', 'Create Request - Nandini Purchasing Lite')
+@section('title', 'Edit Draft - Nandini Purchasing Lite')
 
 @section('content')
 <div class="mb-4 flex flex-col md:flex-row md:items-center md:justify-between gap-3">
     <div>
         <h2 class="text-lg font-bold text-gray-900">
-            Create Purchase Request
+            Edit Draft Purchase Request
         </h2>
 
         <p class="text-sm text-gray-600">
-            Fill the request like a simple purchasing sheet
+            Update this draft before submitting it to Purchasing
         </p>
     </div>
 
-    <div>
+    <div class="flex gap-2">
+        <a href="{{ route('purchasing.v2.requests.show', $purchaseRequest) }}" class="inline-block bg-white text-gray-900 border border-gray-400 px-4 py-2 rounded text-sm hover:bg-gray-100">
+            Back to Detail
+        </a>
+
         <a href="{{ route('purchasing.v2.requests.index') }}" class="inline-block bg-white text-gray-900 border border-gray-400 px-4 py-2 rounded text-sm hover:bg-gray-100">
-            Back
+            Back to List
         </a>
     </div>
 </div>
@@ -36,10 +40,22 @@
 @endif
 
 @php
-$oldItems = old('items', []);
+$oldItems = old('items');
 
 if (! is_array($oldItems)) {
-$oldItems = [];
+$oldItems = $purchaseRequest->items
+->map(function ($requestItem) {
+return [
+'item_id' => $requestItem->item_id,
+'item_name' => $requestItem->item_name,
+'qty' => $requestItem->qty,
+'unit' => $requestItem->unit ?: 'pcs',
+'estimated_unit_price' => $requestItem->item?->last_price ?? '',
+'specification' => $requestItem->specification,
+];
+})
+->values()
+->all();
 }
 
 $oldItems = array_values($oldItems);
@@ -56,8 +72,9 @@ while (count($oldItems) < $minimumRows) { $oldItems[]=[ 'item_id'=> '',
     }
     @endphp
 
-    <form method="POST" action="{{ route('purchasing.v2.requests.store') }}">
+    <form method="POST" action="{{ route('purchasing.v2.requests.update', $purchaseRequest) }}">
         @csrf
+        @method('PUT')
 
         {{-- Request Information --}}
         <div class="bg-white border border-gray-300 p-4 mb-4">
@@ -71,7 +88,7 @@ while (count($oldItems) < $minimumRows) { $oldItems[]=[ 'item_id'=> '',
                         Requester Name
                     </label>
 
-                    <input type="text" name="requester_name" value="{{ old('requester_name', $user->name ?? '') }}" class="w-full border border-gray-400 px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-gray-700">
+                    <input type="text" name="requester_name" value="{{ old('requester_name', $purchaseRequest->requester_name ?? $user->name ?? '') }}" class="w-full border border-gray-400 px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-gray-700">
                 </div>
 
                 <div>
@@ -79,7 +96,7 @@ while (count($oldItems) < $minimumRows) { $oldItems[]=[ 'item_id'=> '',
                         Department
                     </label>
 
-                    <input type="text" name="department_name" value="{{ old('department_name', $user->department_name ?? '') }}" readonly class="w-full border border-gray-400 px-3 py-2 text-sm bg-gray-100 text-gray-700">
+                    <input type="text" name="department_name" value="{{ old('department_name', $purchaseRequest->department_name ?? $user->department_name ?? '') }}" readonly class="w-full border border-gray-400 px-3 py-2 text-sm bg-gray-100 text-gray-700">
                 </div>
 
                 <div>
@@ -88,9 +105,9 @@ while (count($oldItems) < $minimumRows) { $oldItems[]=[ 'item_id'=> '',
                     </label>
 
                     <select name="priority" class="w-full border border-gray-400 px-3 py-2 text-sm bg-white focus:outline-none focus:ring-1 focus:ring-gray-700">
-                        <option value="normal" @selected(old('priority', 'normal' )==='normal' )>Normal</option>
-                        <option value="high" @selected(old('priority')==='high' )>High</option>
-                        <option value="urgent" @selected(old('priority')==='urgent' )>Urgent</option>
+                        <option value="normal" @selected(old('priority', $purchaseRequest->priority ?? 'normal') === 'normal')>Normal</option>
+                        <option value="high" @selected(old('priority', $purchaseRequest->priority ?? '') === 'high')>High</option>
+                        <option value="urgent" @selected(old('priority', $purchaseRequest->priority ?? '') === 'urgent')>Urgent</option>
                     </select>
                 </div>
 
@@ -99,7 +116,7 @@ while (count($oldItems) < $minimumRows) { $oldItems[]=[ 'item_id'=> '',
                         Date Needed
                     </label>
 
-                    <input type="date" name="date_needed" value="{{ old('date_needed') }}" class="w-full border border-gray-400 px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-gray-700">
+                    <input type="date" name="date_needed" value="{{ old('date_needed', optional($purchaseRequest->date_needed)->format('Y-m-d')) }}" class="w-full border border-gray-400 px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-gray-700">
                 </div>
             </div>
 
@@ -108,7 +125,7 @@ while (count($oldItems) < $minimumRows) { $oldItems[]=[ 'item_id'=> '',
                     Request Name
                 </label>
 
-                <input type="text" name="title" value="{{ old('title') }}" placeholder="Example: Engineering maintenance supplies" class="w-full border border-gray-400 px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-gray-700">
+                <input type="text" name="title" value="{{ old('title', $purchaseRequest->title) }}" placeholder="Example: Engineering maintenance supplies" class="w-full border border-gray-400 px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-gray-700">
             </div>
 
             <div class="mt-4">
@@ -116,7 +133,7 @@ while (count($oldItems) < $minimumRows) { $oldItems[]=[ 'item_id'=> '',
                     Remarks
                 </label>
 
-                <textarea name="request_notes" rows="3" placeholder="Write notes or explanation here..." class="w-full border border-gray-400 px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-gray-700">{{ old('request_notes') }}</textarea>
+                <textarea name="request_notes" rows="3" placeholder="Write notes or explanation here..." class="w-full border border-gray-400 px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-gray-700">{{ old('request_notes', $purchaseRequest->request_notes) }}</textarea>
             </div>
         </div>
 
