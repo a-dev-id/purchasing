@@ -76,6 +76,9 @@ Route::middleware(['auth'])
         Route::post('/requests/{purchaseRequest}/submit', [PurchaseRequestController::class, 'submit'])
             ->name('requests.submit');
 
+        Route::post('/requests/{purchaseRequest}/resubmit', [PurchaseRequestController::class, 'resubmit'])
+            ->name('requests.resubmit');
+
         // Purchasing Actions
         Route::post('/requests/{purchaseRequest}/vendor-offers', [PurchaseRequestPurchasingController::class, 'saveVendorOffers'])
             ->name('requests.vendor-offers.save');
@@ -96,6 +99,15 @@ Route::middleware(['auth'])
         Route::post('/requests/{purchaseRequest}/submit-to-gm', [PurchaseRequestCostControlController::class, 'submitToGm'])
             ->name('requests.submit-to-gm');
 
+        Route::post('/requests/{purchaseRequest}/return-to-purchasing-from-accounting', [PurchaseRequestCostControlController::class, 'returnToPurchasingFromAccounting'])
+            ->name('requests.return-to-purchasing-from-accounting');
+
+        Route::post('/requests/{purchaseRequest}/return-to-requester-from-accounting', [PurchaseRequestCostControlController::class, 'returnToRequesterFromAccounting'])
+            ->name('requests.return-to-requester-from-accounting');
+
+        Route::post('/requests/{purchaseRequest}/reject-from-accounting', [PurchaseRequestCostControlController::class, 'rejectFromAccounting'])
+            ->name('requests.reject-from-accounting');
+
         // GM Actions
         Route::post('/requests/{purchaseRequest}/gm-approve-items', [PurchaseRequestGmController::class, 'approveItems'])
             ->name('requests.gm-approve-items');
@@ -113,7 +125,6 @@ Route::middleware(['auth'])
         |--------------------------------------------------------------------------
         | Legacy Action Route Aliases
         |--------------------------------------------------------------------------
-        | Keep this alias so older Blade files still work.
         */
 
         Route::post('/requests/{purchaseRequest}/send-back-to-purchasing', [PurchaseRequestGmController::class, 'sendBackToPurchasing'])

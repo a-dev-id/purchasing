@@ -70,6 +70,17 @@ while (count($oldItems) < $minimumRows) { $oldItems[]=[ 'item_id'=> '',
     'specification' => '',
     ];
     }
+
+    $buttonUser = auth()->user();
+
+    $buttonUserRole = strtolower((string) ($buttonUser->role ?? ''));
+    $buttonNormalizedRole = str_replace(['-', '_'], ' ', $buttonUserRole);
+
+    $canSubmitFromEdit = $purchaseRequest->status === 'draft'
+    && in_array($buttonNormalizedRole, [
+    'admin',
+    'requester',
+    ], true);
     @endphp
 
     <form method="POST" action="{{ route('purchasing.v2.requests.update', $purchaseRequest) }}">
@@ -321,9 +332,11 @@ while (count($oldItems) < $minimumRows) { $oldItems[]=[ 'item_id'=> '',
                 Save Draft
             </button>
 
+            @if ($canSubmitFromEdit)
             <button type="submit" name="submit_action" value="submit" class="bg-gray-900 text-white px-4 py-2 rounded text-sm hover:bg-gray-700">
                 Submit Request
             </button>
+            @endif
         </div>
     </form>
 
@@ -493,577 +506,577 @@ while (count($oldItems) < $minimumRows) { $oldItems[]=[ 'item_id'=> '',
     @push('scripts')
     <script>
         let itemIndex = document.querySelectorAll('#items-table-body tr').length;
-    let activeItemRow = null;
-    let activePhotoRow = null;
-    let activePhotoItemId = null;
+let activeItemRow = null;
+let activePhotoRow = null;
+let activePhotoItemId = null;
 
-    const masterItems = window.masterItems || [];
-    const quickPhotoStoreUrlTemplate = @json(route('purchasing.v2.items.quick-photo-store', ['item' => '__ITEM_ID__']));
+const masterItems = window.masterItems || [];
+const quickPhotoStoreUrlTemplate = @json(route('purchasing.v2.items.quick-photo-store', ['item' => '__ITEM_ID__']));
 
-    function parseCurrency(value) {
-        if (!value) {
-            return 0;
-        }
-
-        let clean = String(value)
-            .replace(/Rp/gi, '')
-            .replace(/\s/g, '')
-            .trim();
-
-        if (/^\d+\.\d{2}$/.test(clean)) {
-            clean = clean.split('.')[0];
-        } else if (clean.includes(',')) {
-            clean = clean.split(',')[0].replaceAll('.', '');
-        } else {
-            clean = clean.replaceAll('.', '').replaceAll(',', '');
-        }
-
-        return Number(clean) || 0;
+function parseCurrency(value) {
+    if (!value) {
+        return 0;
     }
 
-    function formatRupiah(value) {
-        const number = parseCurrency(value);
+    let clean = String(value)
+        .replace(/Rp/gi, '')
+        .replace(/\s/g, '')
+        .trim();
 
-        if (number <= 0) {
-            return '';
-        }
-
-        return 'Rp ' + new Intl.NumberFormat('id-ID', {
-            maximumFractionDigits: 0
-        }).format(number);
+    if (/^\d+\.\d{2}$/.test(clean)) {
+        clean = clean.split('.')[0];
+    } else if (clean.includes(',')) {
+        clean = clean.split(',')[0].replaceAll('.', '');
+    } else {
+        clean = clean.replaceAll('.', '').replaceAll(',', '');
     }
 
-    function calculateTotals() {
-        let grandTotal = 0;
+    return Number(clean) || 0;
+}
 
-        document.querySelectorAll('#items-table-body tr').forEach(function (row) {
-            const qtyInput = row.querySelector('.item-qty');
-            const priceInput = row.querySelector('.item-price');
-            const totalInput = row.querySelector('.item-total');
+function formatRupiah(value) {
+    const number = parseCurrency(value);
 
-            if (!qtyInput || !priceInput || !totalInput) {
-                return;
-            }
-
-            const qty = Number(qtyInput.value || 0);
-            const price = parseCurrency(priceInput.value);
-            const total = qty * price;
-
-            totalInput.value = total > 0 ? formatRupiah(total) : '';
-            grandTotal += total;
-        });
-
-        document.getElementById('grand_total').value = grandTotal > 0
-            ? formatRupiah(grandTotal)
-            : '';
+    if (number <= 0) {
+        return '';
     }
 
-    function closeAllItemResults() {
-        document.querySelectorAll('.item-search-results').forEach(function (box) {
-            box.classList.add('hidden');
-            box.innerHTML = '';
-        });
-    }
+    return 'Rp ' + new Intl.NumberFormat('id-ID', {
+        maximumFractionDigits: 0
+    }).format(number);
+}
 
-    function renderItemPhotos(row, item) {
-        const photosBox = row.querySelector('.item-photos-preview');
-        const photos = item.photos || [];
-        const itemId = item.id || row.querySelector('.item-id-hidden')?.value || '';
+function calculateTotals() {
+    let grandTotal = 0;
 
-        if (!photosBox) {
+    document.querySelectorAll('#items-table-body tr').forEach(function (row) {
+        const qtyInput = row.querySelector('.item-qty');
+        const priceInput = row.querySelector('.item-price');
+        const totalInput = row.querySelector('.item-total');
+
+        if (!qtyInput || !priceInput || !totalInput) {
             return;
         }
 
-        let html = '<div class="flex flex-col gap-2">';
+        const qty = Number(qtyInput.value || 0);
+        const price = parseCurrency(priceInput.value);
+        const total = qty * price;
 
-        if (photos.length === 0) {
-            html += '<span class="text-xs text-gray-400">No Photo</span>';
-        } else {
-            html += '<div class="flex gap-1">';
+        totalInput.value = total > 0 ? formatRupiah(total) : '';
+        grandTotal += total;
+    });
 
-            photos.slice(0, 3).forEach(function (photo) {
-                html += `
-                    <a href="${photo.url}" target="_blank">
-                        <img
-                            src="${photo.url}"
-                            alt="${item.name || 'Item photo'}"
-                            class="w-12 h-12 object-cover border border-gray-300 hover:opacity-80"
-                        >
-                    </a>
-                `;
-            });
+    document.getElementById('grand_total').value = grandTotal > 0
+        ? formatRupiah(grandTotal)
+        : '';
+}
 
-            if (photos.length > 3) {
-                html += `
-                    <div class="w-12 h-12 border border-gray-300 bg-gray-100 flex items-center justify-center text-xs font-bold text-gray-600">
-                        +${photos.length - 3}
-                    </div>
-                `;
-            }
+function closeAllItemResults() {
+    document.querySelectorAll('.item-search-results').forEach(function (box) {
+        box.classList.add('hidden');
+        box.innerHTML = '';
+    });
+}
 
-            html += '</div>';
-        }
+function renderItemPhotos(row, item) {
+    const photosBox = row.querySelector('.item-photos-preview');
+    const photos = item.photos || [];
+    const itemId = item.id || row.querySelector('.item-id-hidden')?.value || '';
 
-        if (itemId) {
+    if (!photosBox) {
+        return;
+    }
+
+    let html = '<div class="flex flex-col gap-2">';
+
+    if (photos.length === 0) {
+        html += '<span class="text-xs text-gray-400">No Photo</span>';
+    } else {
+        html += '<div class="flex gap-1">';
+
+        photos.slice(0, 3).forEach(function (photo) {
             html += `
-                <button
-                    type="button"
-                    class="open-item-photo-modal bg-white text-gray-900 border border-gray-400 px-2 py-1 text-xs hover:bg-gray-100"
-                    data-item-id="${itemId}"
-                >
-                    + Photo
-                </button>
+                <a href="${photo.url}" target="_blank">
+                    <img
+                        src="${photo.url}"
+                        alt="${item.name || 'Item photo'}"
+                        class="w-12 h-12 object-cover border border-gray-300 hover:opacity-80"
+                    >
+                </a>
+            `;
+        });
+
+        if (photos.length > 3) {
+            html += `
+                <div class="w-12 h-12 border border-gray-300 bg-gray-100 flex items-center justify-center text-xs font-bold text-gray-600">
+                    +${photos.length - 3}
+                </div>
             `;
         }
 
         html += '</div>';
-
-        photosBox.innerHTML = html;
     }
 
-    function renderItemResults(input) {
-        const row = input.closest('tr');
-        const resultsBox = row.querySelector('.item-search-results');
-        const keyword = input.value.toLowerCase().trim();
-
-        resultsBox.innerHTML = '';
-
-        if (keyword.length < 1) {
-            resultsBox.classList.add('hidden');
-            return;
-        }
-
-        const filteredItems = masterItems
-            .filter(function (item) {
-                return (item.name || '').toLowerCase().includes(keyword);
-            })
-            .slice(0, 30);
-
-        if (filteredItems.length === 0) {
-            resultsBox.innerHTML = `
-                <button type="button" class="quick-add-from-search block w-full text-left px-3 py-2 text-gray-700 hover:bg-gray-100">
-                    No item found. Click here to add "${input.value}"
-                </button>
-            `;
-
-            resultsBox.querySelector('.quick-add-from-search').addEventListener('click', function () {
-                activeItemRow = row;
-                openAddItemModal(input.value);
-                closeAllItemResults();
-            });
-
-            resultsBox.classList.remove('hidden');
-            return;
-        }
-
-        filteredItems.forEach(function (item) {
-            const option = document.createElement('button');
-
-            option.type = 'button';
-            option.className = 'block w-full text-left px-3 py-2 hover:bg-gray-100 border-b border-gray-200';
-            option.innerHTML = `
-                <div class="font-semibold">${item.name || '-'}</div>
-                <div class="text-xs text-gray-500">
-                    Unit: ${item.unit || '-'} | Last Price: ${formatRupiah(item.price) || '-'} | Photos: ${(item.photos || []).length}
-                </div>
-            `;
-
-            option.addEventListener('click', function () {
-                selectItem(row, item);
-            });
-
-            resultsBox.appendChild(option);
-        });
-
-        resultsBox.classList.remove('hidden');
-    }
-
-    function selectItem(row, item) {
-        const searchInput = row.querySelector('.item-search');
-        const itemIdInput = row.querySelector('.item-id-hidden');
-        const itemNameInput = row.querySelector('.item-name-hidden');
-        const unitInput = row.querySelector('.item-unit');
-        const priceInput = row.querySelector('.item-price');
-        const specificationInput = row.querySelector('.item-specification');
-
-        searchInput.value = item.name || '';
-        itemIdInput.value = item.id || '';
-        itemNameInput.value = item.name || '';
-        unitInput.value = item.unit || 'pcs';
-        priceInput.value = item.price ? formatRupiah(item.price) : '';
-        specificationInput.value = item.specification || '';
-
-        renderItemPhotos(row, item);
-        closeAllItemResults();
-        calculateTotals();
-    }
-
-    function createItemRow(index) {
-        return `
-            <tr>
-                <td class="border border-gray-300 px-3 py-2 text-center row-number">
-                    ${index + 1}
-                </td>
-
-                <td class="border border-gray-300 px-2 py-2 relative">
-                    <div class="flex gap-1">
-                        <div class="relative flex-1">
-                            <input
-                                type="text"
-                                class="item-search w-full border border-gray-300 px-2 py-1 text-sm focus:outline-none focus:ring-1 focus:ring-gray-700"
-                                placeholder="Search item..."
-                                autocomplete="off"
-                            >
-
-                            <div class="item-search-results hidden absolute z-50 left-0 right-0 top-[34px] max-h-56 overflow-y-auto bg-white border border-gray-400 shadow text-sm"></div>
-                        </div>
-
-                        <button
-                            type="button"
-                            class="open-add-item-modal bg-gray-900 text-white border border-gray-900 px-3 py-1 text-sm font-bold hover:bg-gray-700"
-                            title="Add new item"
-                        >
-                            +
-                        </button>
-                    </div>
-
-                    <input
-                        type="hidden"
-                        name="items[${index}][item_id]"
-                        class="item-id-hidden"
-                    >
-
-                    <input
-                        type="hidden"
-                        name="items[${index}][item_name]"
-                        class="item-name-hidden"
-                    >
-                </td>
-
-                <td class="border border-gray-300 px-2 py-2">
-                    <div class="item-photos-preview text-xs text-gray-400">
-                        No Photo
-                    </div>
-                </td>
-
-                <td class="border border-gray-300 px-2 py-2">
-                    <input
-                        type="number"
-                        name="items[${index}][qty]"
-                        min="0"
-                        step="1"
-                        class="item-qty w-full border border-gray-300 px-2 py-1 text-sm text-right focus:outline-none focus:ring-1 focus:ring-gray-700"
-                    >
-                </td>
-
-                <td class="border border-gray-300 px-2 py-2">
-                    <input
-                        type="text"
-                        name="items[${index}][unit]"
-                        value="pcs"
-                        class="item-unit w-full border border-gray-300 px-2 py-1 text-sm focus:outline-none focus:ring-1 focus:ring-gray-700"
-                    >
-                </td>
-
-                <td class="border border-gray-300 px-2 py-2">
-                    <input
-                        type="text"
-                        name="items[${index}][estimated_unit_price]"
-                        inputmode="numeric"
-                        class="item-price w-full border border-gray-300 px-2 py-1 text-sm text-right focus:outline-none focus:ring-1 focus:ring-gray-700"
-                    >
-                </td>
-
-                <td class="border border-gray-300 px-2 py-2">
-                    <input
-                        type="text"
-                        readonly
-                        class="item-total w-full border border-gray-300 px-2 py-1 text-sm text-right bg-gray-100"
-                    >
-                </td>
-
-                <td class="border border-gray-300 px-2 py-2">
-                    <input
-                        type="text"
-                        name="items[${index}][specification]"
-                        class="item-specification w-full border border-gray-300 px-2 py-1 text-sm focus:outline-none focus:ring-1 focus:ring-gray-700"
-                    >
-                </td>
-            </tr>
+    if (itemId) {
+        html += `
+            <button
+                type="button"
+                class="open-item-photo-modal bg-white text-gray-900 border border-gray-400 px-2 py-1 text-xs hover:bg-gray-100"
+                data-item-id="${itemId}"
+            >
+                + Photo
+            </button>
         `;
     }
 
-    function openAddItemModal(defaultName = '') {
-        document.getElementById('quick-item-error').classList.add('hidden');
-        document.getElementById('quick-item-error').innerHTML = '';
+    html += '</div>';
 
-        document.getElementById('quick_item_name').value = defaultName || '';
-        document.getElementById('quick_item_sku').value = '';
-        document.getElementById('quick_item_category').value = '';
-        document.getElementById('quick_item_brand').value = '';
-        document.getElementById('quick_item_default_unit').value = 'pcs';
-        document.getElementById('quick_item_last_price').value = '';
-        document.getElementById('quick_item_currency').value = 'IDR';
-        document.getElementById('quick_item_is_active').value = '1';
-        document.getElementById('quick_item_specification').value = '';
-        document.getElementById('quick_item_photo').value = '';
+    photosBox.innerHTML = html;
+}
 
-        document.getElementById('add-item-modal').classList.remove('hidden');
+function renderItemResults(input) {
+    const row = input.closest('tr');
+    const resultsBox = row.querySelector('.item-search-results');
+    const keyword = input.value.toLowerCase().trim();
 
-        setTimeout(function () {
-            document.getElementById('quick_item_name').focus();
-        }, 50);
+    resultsBox.innerHTML = '';
+
+    if (keyword.length < 1) {
+        resultsBox.classList.add('hidden');
+        return;
     }
 
-    function closeAddItemModal() {
-        document.getElementById('add-item-modal').classList.add('hidden');
-    }
+    const filteredItems = masterItems
+        .filter(function (item) {
+            return (item.name || '').toLowerCase().includes(keyword);
+        })
+        .slice(0, 30);
 
-    function openItemPhotoModal(row, itemId) {
-        activePhotoRow = row;
-        activePhotoItemId = itemId;
+    if (filteredItems.length === 0) {
+        resultsBox.innerHTML = `
+            <button type="button" class="quick-add-from-search block w-full text-left px-3 py-2 text-gray-700 hover:bg-gray-100">
+                No item found. Click here to add "${input.value}"
+            </button>
+        `;
 
-        document.getElementById('quick-photo-error').classList.add('hidden');
-        document.getElementById('quick-photo-error').innerHTML = '';
-        document.getElementById('quick_item_photo_upload').value = '';
-
-        document.getElementById('add-item-photo-modal').classList.remove('hidden');
-    }
-
-    function closeItemPhotoModal() {
-        document.getElementById('add-item-photo-modal').classList.add('hidden');
-    }
-
-    function normalizeQuickItem(item) {
-        return {
-            id: item.id,
-            name: item.name,
-            unit: item.default_unit || item.unit || 'pcs',
-            price: item.last_price || item.price || 0,
-            specification: item.default_specification || item.specification || '',
-            photos: item.photos || [],
-        };
-    }
-
-    document.getElementById('add-item-row').addEventListener('click', function () {
-        const tableBody = document.getElementById('items-table-body');
-
-        tableBody.insertAdjacentHTML('beforeend', createItemRow(itemIndex));
-
-        itemIndex++;
-    });
-
-    document.addEventListener('input', function (event) {
-        if (event.target.classList.contains('item-search')) {
-            const row = event.target.closest('tr');
-
-            row.querySelector('.item-id-hidden').value = '';
-            row.querySelector('.item-name-hidden').value = event.target.value;
-
-            renderItemResults(event.target);
-        }
-
-        if (
-            event.target.classList.contains('item-qty') ||
-            event.target.classList.contains('item-price')
-        ) {
-            calculateTotals();
-        }
-    });
-
-    document.addEventListener('blur', function (event) {
-        if (event.target.classList.contains('item-price')) {
-            const price = parseCurrency(event.target.value);
-
-            event.target.value = price > 0 ? formatRupiah(price) : '';
-
-            calculateTotals();
-        }
-    }, true);
-
-    document.addEventListener('click', function (event) {
-        if (event.target.classList.contains('open-add-item-modal')) {
-            const row = event.target.closest('tr');
-            const searchInput = row.querySelector('.item-search');
-
+        resultsBox.querySelector('.quick-add-from-search').addEventListener('click', function () {
             activeItemRow = row;
-            openAddItemModal(searchInput.value);
-        }
-
-        const photoButton = event.target.closest('.open-item-photo-modal');
-
-        if (photoButton) {
-            const row = photoButton.closest('tr');
-            const itemId = photoButton.dataset.itemId || row.querySelector('.item-id-hidden')?.value || '';
-
-            if (!itemId) {
-                alert('Please select item first.');
-                return;
-            }
-
-            openItemPhotoModal(row, itemId);
-        }
-
-        if (!event.target.closest('.item-search-results') && !event.target.closest('.item-search')) {
+            openAddItemModal(input.value);
             closeAllItemResults();
-        }
+        });
 
-        if (event.target.hasAttribute('data-close-add-item-modal')) {
-            closeAddItemModal();
-        }
+        resultsBox.classList.remove('hidden');
+        return;
+    }
 
-        if (event.target.hasAttribute('data-close-item-photo-modal')) {
-            closeItemPhotoModal();
-        }
+    filteredItems.forEach(function (item) {
+        const option = document.createElement('button');
+
+        option.type = 'button';
+        option.className = 'block w-full text-left px-3 py-2 hover:bg-gray-100 border-b border-gray-200';
+        option.innerHTML = `
+            <div class="font-semibold">${item.name || '-'}</div>
+            <div class="text-xs text-gray-500">
+                Unit: ${item.unit || '-'} | Last Price: ${formatRupiah(item.price) || '-'} | Photos: ${(item.photos || []).length}
+            </div>
+        `;
+
+        option.addEventListener('click', function () {
+            selectItem(row, item);
+        });
+
+        resultsBox.appendChild(option);
     });
 
-    document.getElementById('save-quick-item').addEventListener('click', async function () {
-        const button = this;
-        const errorBox = document.getElementById('quick-item-error');
+    resultsBox.classList.remove('hidden');
+}
 
-        errorBox.classList.add('hidden');
-        errorBox.innerHTML = '';
+function selectItem(row, item) {
+    const searchInput = row.querySelector('.item-search');
+    const itemIdInput = row.querySelector('.item-id-hidden');
+    const itemNameInput = row.querySelector('.item-name-hidden');
+    const unitInput = row.querySelector('.item-unit');
+    const priceInput = row.querySelector('.item-price');
+    const specificationInput = row.querySelector('.item-specification');
 
-        const formData = new FormData();
-        formData.append('name', document.getElementById('quick_item_name').value);
-        formData.append('sku', document.getElementById('quick_item_sku').value);
-        formData.append('category', document.getElementById('quick_item_category').value);
-        formData.append('brand', document.getElementById('quick_item_brand').value);
-        formData.append('default_unit', document.getElementById('quick_item_default_unit').value);
-        formData.append('last_price', document.getElementById('quick_item_last_price').value);
-        formData.append('currency', document.getElementById('quick_item_currency').value);
-        formData.append('is_active', document.getElementById('quick_item_is_active').value);
-        formData.append('default_specification', document.getElementById('quick_item_specification').value);
+    searchInput.value = item.name || '';
+    itemIdInput.value = item.id || '';
+    itemNameInput.value = item.name || '';
+    unitInput.value = item.unit || 'pcs';
+    priceInput.value = item.price ? formatRupiah(item.price) : '';
+    specificationInput.value = item.specification || '';
 
-        const photo = document.getElementById('quick_item_photo').files[0];
-
-        if (photo) {
-            formData.append('photo', photo);
-        }
-
-        button.disabled = true;
-        button.innerText = 'Saving...';
-
-        try {
-            const response = await fetch('{{ route('purchasing.v2.items.quick-store') }}', {
-                method: 'POST',
-                headers: {
-                    'X-CSRF-TOKEN': '{{ csrf_token() }}',
-                    'Accept': 'application/json',
-                },
-                body: formData,
-            });
-
-            const data = await response.json();
-
-            if (!response.ok || !data.success) {
-                let message = 'Failed to save item.';
-
-                if (data.errors) {
-                    message = Object.values(data.errors).flat().join('<br>');
-                } else if (data.message) {
-                    message = data.message;
-                }
-
-                errorBox.innerHTML = message;
-                errorBox.classList.remove('hidden');
-                return;
-            }
-
-            const newItem = normalizeQuickItem(data.item);
-
-            masterItems.push(newItem);
-
-            if (activeItemRow) {
-                selectItem(activeItemRow, newItem);
-            }
-
-            closeAddItemModal();
-        } catch (error) {
-            errorBox.innerHTML = 'Failed to save item. Please try again.';
-            errorBox.classList.remove('hidden');
-        } finally {
-            button.disabled = false;
-            button.innerText = 'Save Item';
-        }
-    });
-
-    document.getElementById('upload-item-photo').addEventListener('click', async function () {
-        const button = this;
-        const errorBox = document.getElementById('quick-photo-error');
-        const photoInput = document.getElementById('quick_item_photo_upload');
-        const photo = photoInput.files[0];
-
-        errorBox.classList.add('hidden');
-        errorBox.innerHTML = '';
-
-        if (!activePhotoItemId || !activePhotoRow) {
-            errorBox.innerHTML = 'Please select item first.';
-            errorBox.classList.remove('hidden');
-            return;
-        }
-
-        if (!photo) {
-            errorBox.innerHTML = 'Please choose photo first.';
-            errorBox.classList.remove('hidden');
-            return;
-        }
-
-        const formData = new FormData();
-        formData.append('photo', photo);
-
-        button.disabled = true;
-        button.innerText = 'Uploading...';
-
-        try {
-            const uploadUrl = quickPhotoStoreUrlTemplate.replace('__ITEM_ID__', activePhotoItemId);
-
-            const response = await fetch(uploadUrl, {
-                method: 'POST',
-                headers: {
-                    'X-CSRF-TOKEN': '{{ csrf_token() }}',
-                    'Accept': 'application/json',
-                },
-                body: formData,
-            });
-
-            const data = await response.json();
-
-            if (!response.ok || !data.success) {
-                let message = 'Failed to upload photo.';
-
-                if (data.errors) {
-                    message = Object.values(data.errors).flat().join('<br>');
-                } else if (data.message) {
-                    message = data.message;
-                }
-
-                errorBox.innerHTML = message;
-                errorBox.classList.remove('hidden');
-                return;
-            }
-
-            const item = masterItems.find(function (masterItem) {
-                return String(masterItem.id) === String(activePhotoItemId);
-            });
-
-            if (item) {
-                item.photos = item.photos || [];
-                item.photos.push(data.photo);
-
-                renderItemPhotos(activePhotoRow, item);
-            }
-
-            closeItemPhotoModal();
-        } catch (error) {
-            errorBox.innerHTML = 'Failed to upload photo. Please try again.';
-            errorBox.classList.remove('hidden');
-        } finally {
-            button.disabled = false;
-            button.innerText = 'Upload Photo';
-        }
-    });
-
+    renderItemPhotos(row, item);
+    closeAllItemResults();
     calculateTotals();
+}
+
+function createItemRow(index) {
+    return `
+        <tr>
+            <td class="border border-gray-300 px-3 py-2 text-center row-number">
+                ${index + 1}
+            </td>
+
+            <td class="border border-gray-300 px-2 py-2 relative">
+                <div class="flex gap-1">
+                    <div class="relative flex-1">
+                        <input
+                            type="text"
+                            class="item-search w-full border border-gray-300 px-2 py-1 text-sm focus:outline-none focus:ring-1 focus:ring-gray-700"
+                            placeholder="Search item..."
+                            autocomplete="off"
+                        >
+
+                        <div class="item-search-results hidden absolute z-50 left-0 right-0 top-[34px] max-h-56 overflow-y-auto bg-white border border-gray-400 shadow text-sm"></div>
+                    </div>
+
+                    <button
+                        type="button"
+                        class="open-add-item-modal bg-gray-900 text-white border border-gray-900 px-3 py-1 text-sm font-bold hover:bg-gray-700"
+                        title="Add new item"
+                    >
+                        +
+                    </button>
+                </div>
+
+                <input
+                    type="hidden"
+                    name="items[${index}][item_id]"
+                    class="item-id-hidden"
+                >
+
+                <input
+                    type="hidden"
+                    name="items[${index}][item_name]"
+                    class="item-name-hidden"
+                >
+            </td>
+
+            <td class="border border-gray-300 px-2 py-2">
+                <div class="item-photos-preview text-xs text-gray-400">
+                    No Photo
+                </div>
+            </td>
+
+            <td class="border border-gray-300 px-2 py-2">
+                <input
+                    type="number"
+                    name="items[${index}][qty]"
+                    min="0"
+                    step="1"
+                    class="item-qty w-full border border-gray-300 px-2 py-1 text-sm text-right focus:outline-none focus:ring-1 focus:ring-gray-700"
+                >
+            </td>
+
+            <td class="border border-gray-300 px-2 py-2">
+                <input
+                    type="text"
+                    name="items[${index}][unit]"
+                    value="pcs"
+                    class="item-unit w-full border border-gray-300 px-2 py-1 text-sm focus:outline-none focus:ring-1 focus:ring-gray-700"
+                >
+            </td>
+
+            <td class="border border-gray-300 px-2 py-2">
+                <input
+                    type="text"
+                    name="items[${index}][estimated_unit_price]"
+                    inputmode="numeric"
+                    class="item-price w-full border border-gray-300 px-2 py-1 text-sm text-right focus:outline-none focus:ring-1 focus:ring-gray-700"
+                >
+            </td>
+
+            <td class="border border-gray-300 px-2 py-2">
+                <input
+                    type="text"
+                    readonly
+                    class="item-total w-full border border-gray-300 px-2 py-1 text-sm text-right bg-gray-100"
+                >
+            </td>
+
+            <td class="border border-gray-300 px-2 py-2">
+                <input
+                    type="text"
+                    name="items[${index}][specification]"
+                    class="item-specification w-full border border-gray-300 px-2 py-1 text-sm focus:outline-none focus:ring-1 focus:ring-gray-700"
+                >
+            </td>
+        </tr>
+    `;
+}
+
+function openAddItemModal(defaultName = '') {
+    document.getElementById('quick-item-error').classList.add('hidden');
+    document.getElementById('quick-item-error').innerHTML = '';
+
+    document.getElementById('quick_item_name').value = defaultName || '';
+    document.getElementById('quick_item_sku').value = '';
+    document.getElementById('quick_item_category').value = '';
+    document.getElementById('quick_item_brand').value = '';
+    document.getElementById('quick_item_default_unit').value = 'pcs';
+    document.getElementById('quick_item_last_price').value = '';
+    document.getElementById('quick_item_currency').value = 'IDR';
+    document.getElementById('quick_item_is_active').value = '1';
+    document.getElementById('quick_item_specification').value = '';
+    document.getElementById('quick_item_photo').value = '';
+
+    document.getElementById('add-item-modal').classList.remove('hidden');
+
+    setTimeout(function () {
+        document.getElementById('quick_item_name').focus();
+    }, 50);
+}
+
+function closeAddItemModal() {
+    document.getElementById('add-item-modal').classList.add('hidden');
+}
+
+function openItemPhotoModal(row, itemId) {
+    activePhotoRow = row;
+    activePhotoItemId = itemId;
+
+    document.getElementById('quick-photo-error').classList.add('hidden');
+    document.getElementById('quick-photo-error').innerHTML = '';
+    document.getElementById('quick_item_photo_upload').value = '';
+
+    document.getElementById('add-item-photo-modal').classList.remove('hidden');
+}
+
+function closeItemPhotoModal() {
+    document.getElementById('add-item-photo-modal').classList.add('hidden');
+}
+
+function normalizeQuickItem(item) {
+    return {
+        id: item.id,
+        name: item.name,
+        unit: item.default_unit || item.unit || 'pcs',
+        price: item.last_price || item.price || 0,
+        specification: item.default_specification || item.specification || '',
+        photos: item.photos || [],
+    };
+}
+
+document.getElementById('add-item-row').addEventListener('click', function () {
+    const tableBody = document.getElementById('items-table-body');
+
+    tableBody.insertAdjacentHTML('beforeend', createItemRow(itemIndex));
+
+    itemIndex++;
+});
+
+document.addEventListener('input', function (event) {
+    if (event.target.classList.contains('item-search')) {
+        const row = event.target.closest('tr');
+
+        row.querySelector('.item-id-hidden').value = '';
+        row.querySelector('.item-name-hidden').value = event.target.value;
+
+        renderItemResults(event.target);
+    }
+
+    if (
+        event.target.classList.contains('item-qty') ||
+        event.target.classList.contains('item-price')
+    ) {
+        calculateTotals();
+    }
+});
+
+document.addEventListener('blur', function (event) {
+    if (event.target.classList.contains('item-price')) {
+        const price = parseCurrency(event.target.value);
+
+        event.target.value = price > 0 ? formatRupiah(price) : '';
+
+        calculateTotals();
+    }
+}, true);
+
+document.addEventListener('click', function (event) {
+    if (event.target.classList.contains('open-add-item-modal')) {
+        const row = event.target.closest('tr');
+        const searchInput = row.querySelector('.item-search');
+
+        activeItemRow = row;
+        openAddItemModal(searchInput.value);
+    }
+
+    const photoButton = event.target.closest('.open-item-photo-modal');
+
+    if (photoButton) {
+        const row = photoButton.closest('tr');
+        const itemId = photoButton.dataset.itemId || row.querySelector('.item-id-hidden')?.value || '';
+
+        if (!itemId) {
+            alert('Please select item first.');
+            return;
+        }
+
+        openItemPhotoModal(row, itemId);
+    }
+
+    if (!event.target.closest('.item-search-results') && !event.target.closest('.item-search')) {
+        closeAllItemResults();
+    }
+
+    if (event.target.hasAttribute('data-close-add-item-modal')) {
+        closeAddItemModal();
+    }
+
+    if (event.target.hasAttribute('data-close-item-photo-modal')) {
+        closeItemPhotoModal();
+    }
+});
+
+document.getElementById('save-quick-item').addEventListener('click', async function () {
+    const button = this;
+    const errorBox = document.getElementById('quick-item-error');
+
+    errorBox.classList.add('hidden');
+    errorBox.innerHTML = '';
+
+    const formData = new FormData();
+    formData.append('name', document.getElementById('quick_item_name').value);
+    formData.append('sku', document.getElementById('quick_item_sku').value);
+    formData.append('category', document.getElementById('quick_item_category').value);
+    formData.append('brand', document.getElementById('quick_item_brand').value);
+    formData.append('default_unit', document.getElementById('quick_item_default_unit').value);
+    formData.append('last_price', document.getElementById('quick_item_last_price').value);
+    formData.append('currency', document.getElementById('quick_item_currency').value);
+    formData.append('is_active', document.getElementById('quick_item_is_active').value);
+    formData.append('default_specification', document.getElementById('quick_item_specification').value);
+
+    const photo = document.getElementById('quick_item_photo').files[0];
+
+    if (photo) {
+        formData.append('photo', photo);
+    }
+
+    button.disabled = true;
+    button.innerText = 'Saving...';
+
+    try {
+        const response = await fetch('{{ route('purchasing.v2.items.quick-store') }}', {
+            method: 'POST',
+            headers: {
+                'X-CSRF-TOKEN': '{{ csrf_token() }}',
+                'Accept': 'application/json',
+            },
+            body: formData,
+        });
+
+        const data = await response.json();
+
+        if (!response.ok || !data.success) {
+            let message = 'Failed to save item.';
+
+            if (data.errors) {
+                message = Object.values(data.errors).flat().join('<br>');
+            } else if (data.message) {
+                message = data.message;
+            }
+
+            errorBox.innerHTML = message;
+            errorBox.classList.remove('hidden');
+            return;
+        }
+
+        const newItem = normalizeQuickItem(data.item);
+
+        masterItems.push(newItem);
+
+        if (activeItemRow) {
+            selectItem(activeItemRow, newItem);
+        }
+
+        closeAddItemModal();
+    } catch (error) {
+        errorBox.innerHTML = 'Failed to save item. Please try again.';
+        errorBox.classList.remove('hidden');
+    } finally {
+        button.disabled = false;
+        button.innerText = 'Save Item';
+    }
+});
+
+document.getElementById('upload-item-photo').addEventListener('click', async function () {
+    const button = this;
+    const errorBox = document.getElementById('quick-photo-error');
+    const photoInput = document.getElementById('quick_item_photo_upload');
+    const photo = photoInput.files[0];
+
+    errorBox.classList.add('hidden');
+    errorBox.innerHTML = '';
+
+    if (!activePhotoItemId || !activePhotoRow) {
+        errorBox.innerHTML = 'Please select item first.';
+        errorBox.classList.remove('hidden');
+        return;
+    }
+
+    if (!photo) {
+        errorBox.innerHTML = 'Please choose photo first.';
+        errorBox.classList.remove('hidden');
+        return;
+    }
+
+    const formData = new FormData();
+    formData.append('photo', photo);
+
+    button.disabled = true;
+    button.innerText = 'Uploading...';
+
+    try {
+        const uploadUrl = quickPhotoStoreUrlTemplate.replace('__ITEM_ID__', activePhotoItemId);
+
+        const response = await fetch(uploadUrl, {
+            method: 'POST',
+            headers: {
+                'X-CSRF-TOKEN': '{{ csrf_token() }}',
+                'Accept': 'application/json',
+            },
+            body: formData,
+        });
+
+        const data = await response.json();
+
+        if (!response.ok || !data.success) {
+            let message = 'Failed to upload photo.';
+
+            if (data.errors) {
+                message = Object.values(data.errors).flat().join('<br>');
+            } else if (data.message) {
+                message = data.message;
+            }
+
+            errorBox.innerHTML = message;
+            errorBox.classList.remove('hidden');
+            return;
+        }
+
+        const item = masterItems.find(function (masterItem) {
+            return String(masterItem.id) === String(activePhotoItemId);
+        });
+
+        if (item) {
+            item.photos = item.photos || [];
+            item.photos.push(data.photo);
+
+            renderItemPhotos(activePhotoRow, item);
+        }
+
+        closeItemPhotoModal();
+    } catch (error) {
+        errorBox.innerHTML = 'Failed to upload photo. Please try again.';
+        errorBox.classList.remove('hidden');
+    } finally {
+        button.disabled = false;
+        button.innerText = 'Upload Photo';
+    }
+});
+
+calculateTotals();
     </script>
     @endpush

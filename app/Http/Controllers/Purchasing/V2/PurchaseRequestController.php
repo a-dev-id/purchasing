@@ -6,10 +6,10 @@ use App\Http\Controllers\Controller;
 use App\Models\Item;
 use App\Models\PurchaseRequest;
 use App\Models\PurchaseRequestItem;
-use App\Models\Vendor;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Schema;
 use Illuminate\View\View;
 
 class PurchaseRequestController extends Controller
@@ -22,7 +22,7 @@ class PurchaseRequestController extends Controller
             ->withCount('items')
             ->latest('updated_at');
 
-        if (($user->role ?? null) === 'requester') {
+        if ($this->hasUserRole($user, ['requester'])) {
             $query->where(function ($query) use ($user) {
                 $query->where('requested_by', $user->id);
 
@@ -81,9 +81,7 @@ class PurchaseRequestController extends Controller
     public function needMyAction(Request $request): View
     {
         $user = Auth::user();
-
-        $role = strtolower((string) ($user->role ?? ''));
-        $normalizedRole = str_replace(['-', '_'], ' ', $role);
+        $normalizedRole = $this->resolveUserRole($user);
 
         $requesterRevisionStatuses = [
             'revision_from_purchasing',
@@ -95,7 +93,9 @@ class PurchaseRequestController extends Controller
         ];
 
         $statuses = match ($normalizedRole) {
-            'purchasing' => [
+            'purchasing',
+            'purchase',
+            'purchasing staff' => [
                 'submitted',
                 'on_hold_by_gm',
                 'revision_to_purchasing_from_accounting',
@@ -103,8 +103,10 @@ class PurchaseRequestController extends Controller
             ],
 
             'accounting',
+            'accountant',
             'cost control',
-            'cost controller' => [
+            'cost controller',
+            'costcontrol' => [
                 'submitted_to_accounting',
                 'revision_to_accounting_from_gm',
             ],
@@ -115,6 +117,7 @@ class PurchaseRequestController extends Controller
             ],
 
             'financial controller',
+            'finance controller',
             'fc' => [
                 'gm_approved',
                 'waiting_payment_by_fc',
@@ -135,17 +138,7 @@ class PurchaseRequestController extends Controller
             ->whereIn('status', $statuses)
             ->latest('updated_at');
 
-        if (! in_array($normalizedRole, [
-            'admin',
-            'purchasing',
-            'accounting',
-            'cost control',
-            'cost controller',
-            'gm',
-            'general manager',
-            'financial controller',
-            'fc',
-        ], true)) {
+        if ($this->hasUserRole($user, ['requester'])) {
             $query->where(function ($query) use ($user) {
                 $query->where('requested_by', $user->id);
 
@@ -171,10 +164,11 @@ class PurchaseRequestController extends Controller
             ->paginate(25)
             ->withQueryString();
 
-        return view('purchasing.v2.requests.need-my-action', [
+        return view('purchasing.v2.requests.index', [
             'user' => $user,
             'purchaseRequests' => $purchaseRequests,
-            'statuses' => $statuses,
+            'statuses' => collect($statuses),
+            'departments' => collect(),
         ]);
     }
 
@@ -186,17 +180,7 @@ class PurchaseRequestController extends Controller
             ->with('photos')
             ->where('is_active', true)
             ->orderBy('name')
-            ->get([
-                'id',
-                'name',
-                'sku',
-                'category',
-                'brand',
-                'default_unit',
-                'default_specification',
-                'last_price',
-                'currency',
-            ]);
+            ->get();
 
         return view('purchasing.v2.requests.create', [
             'user' => $user,
@@ -206,62 +190,49 @@ class PurchaseRequestController extends Controller
 
     public function store(Request $request)
     {
-        $user = Auth::user();
-
         $validated = $request->validate([
-            'requester_name' => ['required', 'string', 'max:191'],
-            'department_name' => ['nullable', 'string', 'max:191'],
-            'title' => ['required', 'string', 'max:191'],
-            'priority' => ['required', 'string', 'in:normal,high,urgent'],
+            'requester_name' => ['nullable', 'string', 'max:255'],
+            'department_name' => ['nullable', 'string', 'max:255'],
+            'title' => ['required', 'string', 'max:255'],
+            'priority' => ['required', 'string', 'max:50'],
             'date_needed' => ['nullable', 'date'],
             'request_notes' => ['nullable', 'string'],
-
-            'submit_action' => ['nullable', 'string', 'in:draft,submit'],
-
-            'items' => ['nullable', 'array'],
-            'items.*.item_id' => ['nullable', 'integer', 'exists:items,id'],
-            'items.*.item_name' => ['nullable', 'string', 'max:191'],
+            'submit_action' => ['nullable', 'string'],
+            'items' => ['required', 'array'],
+            'items.*.item_id' => ['nullable', 'integer'],
+            'items.*.item_name' => ['nullable', 'string', 'max:255'],
             'items.*.qty' => ['nullable', 'numeric', 'min:0'],
             'items.*.unit' => ['nullable', 'string', 'max:50'],
             'items.*.estimated_unit_price' => ['nullable'],
             'items.*.specification' => ['nullable', 'string'],
         ]);
 
+        $user = Auth::user();
         $itemRows = $this->prepareItemRows($validated['items'] ?? []);
 
         if ($itemRows->isEmpty()) {
             return back()
-                ->withErrors(['items' => 'Please choose at least one item.'])
-                ->withInput();
+                ->withInput()
+                ->withErrors(['items' => 'Please add at least one item.']);
         }
 
-        foreach ($itemRows as $row) {
-            if ((float) ($row['qty'] ?? 0) <= 0) {
-                return back()
-                    ->withErrors(['items' => 'Please enter quantity for all selected items.'])
-                    ->withInput();
-            }
-        }
+        $submitAction = $validated['submit_action'] ?? 'draft';
+        $status = $submitAction === 'submit' ? 'submitted' : 'draft';
 
-        $status = ($validated['submit_action'] ?? 'draft') === 'submit'
-            ? 'submitted'
-            : 'draft';
-
-        $purchaseRequest = DB::transaction(function () use ($validated, $itemRows, $user, $status) {
+        $purchaseRequest = DB::transaction(function () use ($validated, $user, $itemRows, $status) {
             $purchaseRequest = PurchaseRequest::create([
                 'request_number' => $this->generateRequestNumber(),
-                'requested_by' => $user->id,
-                'requester_name' => $validated['requester_name'],
-                'department_name' => $validated['department_name'] ?? ($user->department_name ?? null),
+                'requested_by' => $user?->id,
+                'requester_name' => $validated['requester_name'] ?? $user?->name,
+                'department_name' => $validated['department_name'] ?? $user?->department_name,
                 'title' => $validated['title'],
-                'priority' => $validated['priority'],
+                'priority' => $validated['priority'] ?? 'normal',
                 'date_needed' => $validated['date_needed'] ?? null,
                 'status' => $status,
                 'request_notes' => $validated['request_notes'] ?? null,
+                'submitted_at' => $status === 'submitted' ? now() : null,
                 'current_status_at' => now(),
                 'last_activity_at' => now(),
-                'submitted_at' => $status === 'submitted' ? now() : null,
-                'vendor_comparison_mode' => 'item',
             ]);
 
             $this->syncPurchaseRequestItems($purchaseRequest, $itemRows);
@@ -275,41 +246,25 @@ class PurchaseRequestController extends Controller
                 'success',
                 $status === 'submitted'
                     ? 'Purchase request has been submitted successfully.'
-                    : 'Purchase request has been saved as draft.'
+                    : 'Purchase request draft has been saved successfully.'
             );
     }
 
-    public function edit(PurchaseRequest $purchaseRequest)
+    public function edit(PurchaseRequest $purchaseRequest): View
     {
         $user = Auth::user();
 
-        $this->authorizeDraftAccess($purchaseRequest, $user);
-
-        if (! in_array($purchaseRequest->status, $this->editableStatuses(), true)) {
-            return redirect()
-                ->route('purchasing.v2.requests.show', $purchaseRequest)
-                ->withErrors(['status' => 'Only draft or returned purchase requests can be edited.']);
-        }
-
-        $purchaseRequest->load([
-            'items.item.photos',
-        ]);
+        $this->authorizeEdit($purchaseRequest, $user);
 
         $items = Item::query()
             ->with('photos')
             ->where('is_active', true)
             ->orderBy('name')
-            ->get([
-                'id',
-                'name',
-                'sku',
-                'category',
-                'brand',
-                'default_unit',
-                'default_specification',
-                'last_price',
-                'currency',
-            ]);
+            ->get();
+
+        $purchaseRequest->load([
+            'items.item.photos',
+        ]);
 
         return view('purchasing.v2.requests.edit', [
             'user' => $user,
@@ -322,27 +277,19 @@ class PurchaseRequestController extends Controller
     {
         $user = Auth::user();
 
-        $this->authorizeDraftAccess($purchaseRequest, $user);
-
-        if (! in_array($purchaseRequest->status, $this->editableStatuses(), true)) {
-            return redirect()
-                ->route('purchasing.v2.requests.show', $purchaseRequest)
-                ->withErrors(['status' => 'Only draft or returned purchase requests can be edited.']);
-        }
+        $this->authorizeEdit($purchaseRequest, $user);
 
         $validated = $request->validate([
-            'requester_name' => ['required', 'string', 'max:191'],
-            'department_name' => ['nullable', 'string', 'max:191'],
-            'title' => ['required', 'string', 'max:191'],
-            'priority' => ['required', 'string', 'in:normal,high,urgent'],
+            'requester_name' => ['nullable', 'string', 'max:255'],
+            'department_name' => ['nullable', 'string', 'max:255'],
+            'title' => ['required', 'string', 'max:255'],
+            'priority' => ['required', 'string', 'max:50'],
             'date_needed' => ['nullable', 'date'],
             'request_notes' => ['nullable', 'string'],
-
-            'submit_action' => ['nullable', 'string', 'in:draft,submit'],
-
-            'items' => ['nullable', 'array'],
-            'items.*.item_id' => ['nullable', 'integer', 'exists:items,id'],
-            'items.*.item_name' => ['nullable', 'string', 'max:191'],
+            'submit_action' => ['nullable', 'string'],
+            'items' => ['required', 'array'],
+            'items.*.item_id' => ['nullable', 'integer'],
+            'items.*.item_name' => ['nullable', 'string', 'max:255'],
             'items.*.qty' => ['nullable', 'numeric', 'min:0'],
             'items.*.unit' => ['nullable', 'string', 'max:50'],
             'items.*.estimated_unit_price' => ['nullable'],
@@ -353,36 +300,30 @@ class PurchaseRequestController extends Controller
 
         if ($itemRows->isEmpty()) {
             return back()
-                ->withErrors(['items' => 'Please choose at least one item.'])
-                ->withInput();
+                ->withInput()
+                ->withErrors(['items' => 'Please add at least one item.']);
         }
 
-        foreach ($itemRows as $row) {
-            if ((float) ($row['qty'] ?? 0) <= 0) {
-                return back()
-                    ->withErrors(['items' => 'Please enter quantity for all selected items.'])
-                    ->withInput();
-            }
-        }
-
-        $previousStatus = $purchaseRequest->status;
         $submitAction = $validated['submit_action'] ?? 'draft';
 
-        $status = $this->resolveUpdatedStatus($previousStatus, $submitAction);
-
-        DB::transaction(function () use ($validated, $itemRows, $purchaseRequest, $user, $status, $previousStatus) {
-            $purchaseRequest->update([
-                'requester_name' => $validated['requester_name'],
-                'department_name' => $validated['department_name'] ?? ($user->department_name ?? null),
+        DB::transaction(function () use ($purchaseRequest, $validated, $itemRows, $submitAction) {
+            $updateData = [
+                'requester_name' => $validated['requester_name'] ?? $purchaseRequest->requester_name,
+                'department_name' => $validated['department_name'] ?? $purchaseRequest->department_name,
                 'title' => $validated['title'],
-                'priority' => $validated['priority'],
+                'priority' => $validated['priority'] ?? 'normal',
                 'date_needed' => $validated['date_needed'] ?? null,
-                'status' => $status,
                 'request_notes' => $validated['request_notes'] ?? null,
-                'current_status_at' => now(),
                 'last_activity_at' => now(),
-                'submitted_at' => $status === 'submitted' ? now() : $purchaseRequest->submitted_at,
-            ]);
+            ];
+
+            if ($submitAction === 'submit' && $purchaseRequest->status === 'draft') {
+                $updateData['status'] = 'submitted';
+                $updateData['submitted_at'] = now();
+                $updateData['current_status_at'] = now();
+            }
+
+            $purchaseRequest->update($updateData);
 
             $purchaseRequest->items()->delete();
 
@@ -391,19 +332,14 @@ class PurchaseRequestController extends Controller
 
         return redirect()
             ->route('purchasing.v2.requests.show', $purchaseRequest)
-            ->with(
-                'success',
-                $status === 'submitted'
-                    ? 'Purchase request has been updated and submitted back to Purchasing successfully.'
-                    : 'Purchase request has been updated successfully.'
-            );
+            ->with('success', 'Purchase request has been updated successfully.');
     }
 
     public function submit(PurchaseRequest $purchaseRequest)
     {
         $user = Auth::user();
 
-        if (($user->role ?? null) === 'requester') {
+        if ($this->hasUserRole($user, ['requester'])) {
             abort_unless((int) $purchaseRequest->requested_by === (int) $user->id, 403);
         }
 
@@ -439,102 +375,182 @@ class PurchaseRequestController extends Controller
             ->with('success', 'Purchase request has been submitted successfully.');
     }
 
+    public function resubmit(PurchaseRequest $purchaseRequest)
+    {
+        $user = Auth::user();
+
+        $isAdmin = $this->hasUserRole($user, ['admin', 'super admin']);
+        $isRequester = $this->hasUserRole($user, ['requester']);
+
+        $isOwnerOrSameDepartment =
+            (int) $purchaseRequest->requested_by === (int) $user?->id
+            || (
+                ! empty($user?->department_name)
+                && $purchaseRequest->department_name === $user->department_name
+            );
+
+        if (! $isAdmin && (! $isRequester || ! $isOwnerOrSameDepartment)) {
+            abort(403);
+        }
+
+        $targetStatus = match ($purchaseRequest->status) {
+            'revision_from_purchasing',
+            'revision_to_requester_from_purchasing' => 'submitted',
+
+            'revision_from_accounting',
+            'revision_to_requester_from_accounting' => 'submitted_to_accounting',
+
+            'revision_from_gm',
+            'revision_to_requester_from_gm' => 'submitted_to_gm',
+
+            default => null,
+        };
+
+        if (! $targetStatus) {
+            return redirect()
+                ->route('purchasing.v2.requests.show', $purchaseRequest)
+                ->with('error', 'This purchase request cannot be resubmitted from the current status.');
+        }
+
+        if ($purchaseRequest->items()->count() === 0) {
+            return redirect()
+                ->route('purchasing.v2.requests.show', $purchaseRequest)
+                ->withErrors(['items' => 'Please add at least one item before resubmitting.']);
+        }
+
+        $fromStatus = $purchaseRequest->status;
+
+        DB::transaction(function () use ($purchaseRequest, $user, $fromStatus, $targetStatus) {
+            $updateData = [
+                'status' => $targetStatus,
+                'current_status_at' => now(),
+                'last_activity_at' => now(),
+            ];
+
+            if ($targetStatus === 'submitted' && empty($purchaseRequest->submitted_at)) {
+                $updateData['submitted_at'] = now();
+            }
+
+            $purchaseRequest->update($updateData);
+
+            $this->writeResubmitLog(
+                $purchaseRequest,
+                $user,
+                $fromStatus,
+                $targetStatus
+            );
+        });
+
+        return redirect()
+            ->route('purchasing.v2.requests.show', $purchaseRequest)
+            ->with('success', 'Purchase request has been resubmitted successfully.');
+    }
+
+    private function writeResubmitLog(
+        PurchaseRequest $purchaseRequest,
+        $user,
+        ?string $fromStatus,
+        ?string $toStatus
+    ): void {
+        if (! Schema::hasTable('purchase_request_logs')) {
+            return;
+        }
+
+        $now = now();
+
+        $data = [];
+
+        if (Schema::hasColumn('purchase_request_logs', 'purchase_request_id')) {
+            $data['purchase_request_id'] = $purchaseRequest->id;
+        }
+
+        if (Schema::hasColumn('purchase_request_logs', 'user_id')) {
+            $data['user_id'] = $user?->id;
+        }
+
+        if (Schema::hasColumn('purchase_request_logs', 'user_name')) {
+            $data['user_name'] = $user?->name;
+        }
+
+        if (Schema::hasColumn('purchase_request_logs', 'role')) {
+            $data['role'] = $this->getUserRoleForLog($user);
+        }
+
+        if (Schema::hasColumn('purchase_request_logs', 'action')) {
+            $data['action'] = 'resubmitted_by_requester';
+        }
+
+        if (Schema::hasColumn('purchase_request_logs', 'from_status')) {
+            $data['from_status'] = $fromStatus;
+        }
+
+        if (Schema::hasColumn('purchase_request_logs', 'to_status')) {
+            $data['to_status'] = $toStatus;
+        }
+
+        foreach (['remark', 'remarks', 'message', 'notes'] as $column) {
+            if (Schema::hasColumn('purchase_request_logs', $column)) {
+                $data[$column] = 'Requester resubmitted the purchase request.';
+            }
+        }
+
+        if (Schema::hasColumn('purchase_request_logs', 'acted_at')) {
+            $data['acted_at'] = $now;
+        }
+
+        if (Schema::hasColumn('purchase_request_logs', 'created_at')) {
+            $data['created_at'] = $now;
+        }
+
+        if (Schema::hasColumn('purchase_request_logs', 'updated_at')) {
+            $data['updated_at'] = $now;
+        }
+
+        if (! empty($data)) {
+            DB::table('purchase_request_logs')->insert($data);
+        }
+    }
+
     public function show(PurchaseRequest $purchaseRequest): View
     {
         $user = Auth::user();
 
-        if (($user->role ?? null) === 'requester') {
-            $canView = $purchaseRequest->requested_by === $user->id
-                || $purchaseRequest->department_name === $user->department_name;
-
-            abort_unless($canView, 403);
-        }
+        $this->authorizeView($purchaseRequest, $user);
 
         $purchaseRequest->load([
             'items.item.photos',
-            'items.vendorOffers' => function ($query) {
-                $query->orderBy('offer_rank');
-            },
+            'items.vendorOffers.vendor',
+            'logs.user',
         ]);
-
-        $vendors = Vendor::query()
-            ->where('is_active', true)
-            ->orderBy('name')
-            ->get([
-                'id',
-                'name',
-                'category',
-                'contact_person',
-                'phone',
-                'email',
-            ]);
 
         return view('purchasing.v2.requests.show', [
             'user' => $user,
             'purchaseRequest' => $purchaseRequest,
-            'vendors' => $vendors,
         ]);
     }
 
     public function searchItems(Request $request)
     {
-        $search = trim((string) $request->input('q', ''));
+        $search = $request->string('q')->toString();
 
         $items = Item::query()
             ->where('is_active', true)
             ->when($search !== '', function ($query) use ($search) {
-                $query->where(function ($subQuery) use ($search) {
-                    $subQuery
-                        ->where('name', 'like', '%' . $search . '%')
-                        ->orWhere('sku', 'like', '%' . $search . '%')
-                        ->orWhere('category', 'like', '%' . $search . '%')
-                        ->orWhere('brand', 'like', '%' . $search . '%')
-                        ->orWhere('default_specification', 'like', '%' . $search . '%');
-                });
+                $query->where('name', 'like', "%{$search}%");
             })
-            ->orderBy('name')
             ->limit(20)
-            ->get([
-                'id',
-                'name',
-                'sku',
-                'category',
-                'brand',
-                'default_unit',
-                'default_specification',
-                'last_price',
-                'currency',
-            ])
-            ->map(function ($item) {
-                $lastPrice = (float) ($item->last_price ?? 0);
+            ->get();
 
-                return [
-                    'id' => $item->id,
-                    'text' => $item->name,
-                    'name' => $item->name,
-                    'sku' => $item->sku,
-                    'category' => $item->category,
-                    'brand' => $item->brand,
-                    'default_unit' => $item->default_unit,
-                    'unit' => $item->default_unit,
-                    'default_specification' => $item->default_specification,
-                    'specification' => $item->default_specification,
-                    'last_price' => $lastPrice,
-                    'estimated_unit_price' => $lastPrice,
-                    'currency' => $item->currency ?: 'IDR',
-                ];
-            })
-            ->values();
-
-        return response()->json([
-            'items' => $items,
-            'results' => $items,
-        ]);
+        return response()->json($items);
     }
 
-    private function editableStatuses(): array
+    private function authorizeEdit(PurchaseRequest $purchaseRequest, $user): void
     {
-        return [
+        if ($this->hasUserRole($user, ['admin', 'super admin'])) {
+            return;
+        }
+
+        $editableStatuses = [
             'draft',
             'revision_from_purchasing',
             'revision_from_accounting',
@@ -543,59 +559,224 @@ class PurchaseRequestController extends Controller
             'revision_to_requester_from_accounting',
             'revision_to_requester_from_gm',
         ];
+
+        abort_unless(in_array($purchaseRequest->status, $editableStatuses, true), 403);
+
+        $canAccess = (int) $purchaseRequest->requested_by === (int) $user?->id
+            || (
+                ! empty($user?->department_name)
+                && $purchaseRequest->department_name === $user->department_name
+            );
+
+        abort_unless($canAccess, 403);
     }
 
-    private function returnedStatuses(): array
+    private function authorizeView(PurchaseRequest $purchaseRequest, $user): void
     {
-        return [
-            'revision_from_purchasing',
-            'revision_from_accounting',
-            'revision_from_gm',
-            'revision_to_requester_from_purchasing',
-            'revision_to_requester_from_accounting',
-            'revision_to_requester_from_gm',
-        ];
-    }
-
-    private function resolveUpdatedStatus(string $previousStatus, string $submitAction): string
-    {
-        if ($submitAction === 'submit') {
-            return 'submitted';
+        if (! $user) {
+            abort(403);
         }
 
-        if (in_array($previousStatus, $this->returnedStatuses(), true)) {
-            return $previousStatus;
+        if ($this->hasUserRole($user, ['admin', 'super admin'])) {
+            return;
         }
 
-        return 'draft';
-    }
+        if ($this->hasUserRole($user, ['requester'])) {
+            $canAccess = (int) $purchaseRequest->requested_by === (int) $user->id
+                || (
+                    ! empty($user->department_name)
+                    && $purchaseRequest->department_name === $user->department_name
+                );
 
-    private function authorizeDraftAccess(PurchaseRequest $purchaseRequest, $user): void
-    {
-        $role = strtolower((string) ($user->role ?? ''));
-        $normalizedRole = str_replace(['-', '_'], ' ', $role);
-
-        if (in_array($normalizedRole, [
-            'admin',
-            'requester',
-        ], true)) {
-            if ($normalizedRole === 'requester') {
-                $canAccess = (int) $purchaseRequest->requested_by === (int) $user->id
-                    || (
-                        ! empty($user->department_name)
-                        && $purchaseRequest->department_name === $user->department_name
-                    );
-
-                abort_unless($canAccess, 403);
-            }
+            abort_unless($canAccess, 403);
 
             return;
         }
 
-        $canAccessByDepartment = ! empty($user->department_name)
-            && $purchaseRequest->department_name === $user->department_name;
+        if ($this->hasUserRole($user, [
+            'purchasing',
+            'purchase',
+            'purchasing staff',
+            'accounting',
+            'accountant',
+            'cost control',
+            'cost controller',
+            'costcontrol',
+            'gm',
+            'general manager',
+            'financial controller',
+            'finance controller',
+            'fc',
+        ])) {
+            return;
+        }
 
-        abort_unless($canAccessByDepartment, 403);
+        $canAccessByOwnerOrDepartment = (int) $purchaseRequest->requested_by === (int) $user->id
+            || (
+                ! empty($user->department_name)
+                && $purchaseRequest->department_name === $user->department_name
+            );
+
+        abort_unless($canAccessByOwnerOrDepartment, 403);
+    }
+
+    private function hasUserRole($user, array $roles): bool
+    {
+        if (! $user) {
+            return false;
+        }
+
+        $normalizedRoles = array_map(
+            fn($role) => $this->normalizeRole($role),
+            $roles
+        );
+
+        foreach ($this->getUserRoleValues($user) as $roleValue) {
+            if (in_array($this->normalizeRole($roleValue), $normalizedRoles, true)) {
+                return true;
+            }
+        }
+
+        if (method_exists($user, 'hasRole')) {
+            foreach ($roles as $role) {
+                if ($user->hasRole($role) || $user->hasRole($this->normalizeRole($role))) {
+                    return true;
+                }
+            }
+        }
+
+        if (method_exists($user, 'hasAnyRole')) {
+            if ($user->hasAnyRole($roles) || $user->hasAnyRole($normalizedRoles)) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    private function resolveUserRole($user): string
+    {
+        $priorityRoles = [
+            'admin',
+            'super admin',
+            'purchasing',
+            'purchase',
+            'purchasing staff',
+            'accounting',
+            'accountant',
+            'cost control',
+            'cost controller',
+            'costcontrol',
+            'gm',
+            'general manager',
+            'financial controller',
+            'finance controller',
+            'fc',
+            'requester',
+        ];
+
+        foreach ($priorityRoles as $role) {
+            if ($this->hasUserRole($user, [$role])) {
+                return $this->normalizeRole($role);
+            }
+        }
+
+        foreach ($this->getUserRoleValues($user) as $roleValue) {
+            $normalizedRole = $this->normalizeRole($roleValue);
+
+            if ($normalizedRole !== '') {
+                return $normalizedRole;
+            }
+        }
+
+        return '';
+    }
+
+    private function getUserRoleValues($user): array
+    {
+        if (! $user) {
+            return [];
+        }
+
+        $roles = [];
+
+        foreach (
+            [
+                'role',
+                'role_name',
+                'user_role',
+                'account_type',
+                'type',
+                'position',
+                'department',
+                'department_name',
+            ] as $field
+        ) {
+            if (! empty($user->{$field})) {
+                $roles[] = (string) $user->{$field};
+            }
+        }
+
+        if (method_exists($user, 'getRoleNames')) {
+            foreach ($user->getRoleNames() as $roleName) {
+                $roles[] = (string) $roleName;
+            }
+        }
+
+        if (isset($user->roles)) {
+            foreach ($user->roles as $role) {
+                if (is_string($role)) {
+                    $roles[] = $role;
+                    continue;
+                }
+
+                foreach (['name', 'role', 'role_name', 'title'] as $field) {
+                    if (! empty($role->{$field})) {
+                        $roles[] = (string) $role->{$field};
+                    }
+                }
+            }
+        }
+
+        return array_values(array_filter(array_unique($roles)));
+    }
+
+    private function normalizeRole(?string $role): string
+    {
+        $role = strtolower(trim((string) $role));
+        $role = str_replace(['-', '_'], ' ', $role);
+        $role = preg_replace('/\s+/', ' ', $role);
+
+        return trim($role);
+    }
+
+    private function getUserRoleForLog($user): ?string
+    {
+        if (! $user) {
+            return null;
+        }
+
+        foreach (
+            [
+                'role',
+                'role_name',
+                'user_role',
+                'account_type',
+                'type',
+                'position',
+                'department_name',
+            ] as $field
+        ) {
+            if (! empty($user->{$field})) {
+                return (string) $user->{$field};
+            }
+        }
+
+        if (method_exists($user, 'getRoleNames')) {
+            return $user->getRoleNames()->first();
+        }
+
+        return null;
     }
 
     private function prepareItemRows(array $items)
